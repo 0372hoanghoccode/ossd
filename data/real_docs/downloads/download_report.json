@@ -1,0 +1,38 @@
+﻿[
+    {
+        "file":  "nist_sp_800_53r5.pdf",
+        "status":  "ok",
+        "bytes":  6073678,
+        "url":  "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r5.pdf"
+    },
+    {
+        "file":  "nist_sp_800_61r2.pdf",
+        "status":  "ok",
+        "bytes":  1744473,
+        "url":  "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf"
+    },
+    {
+        "file":  "owasp_sql_injection_prevention_cheat_sheet.html",
+        "status":  "ok",
+        "bytes":  96447,
+        "url":  "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+    },
+    {
+        "file":  "owasp_top10.html",
+        "status":  "ok",
+        "bytes":  71432,
+        "url":  "https://owasp.org/www-project-top-ten/"
+    },
+    {
+        "file":  "rfc_9110_http_semantics.txt",
+        "status":  "ok",
+        "bytes":  502941,
+        "url":  "https://www.rfc-editor.org/rfc/rfc9110.txt"
+    },
+    {
+        "file":  "rfc_9000_quic.txt",
+        "status":  "ok",
+        "bytes":  403442,
+        "url":  "https://www.rfc-editor.org/rfc/rfc9000.txt"
+    }
+]
