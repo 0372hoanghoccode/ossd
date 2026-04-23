@@ -46,7 +46,30 @@ SmartDoc AI là hệ thống Retrieval-Augmented Generation (RAG) chạy local, 
 
 \section{Kết quả và đánh giá}
 \subsection{Kết quả đạt được}
+Hệ thống hiện hỗ trợ đầy đủ quy trình hỏi đáp tài liệu đa nguồn với các tính năng nâng cao: hybrid retrieval, re-ranking, conversational query rewrite, và self-reflection.
+
+\subsection{Benchmark chunk strategy}
+Benchmark được mở rộng theo hướng \textbf{speed + quality}:
+\begin{itemize}
+	\item \texttt{chunks}: số chunk sinh ra từ mỗi cấu hình.
+	\item \texttt{split\_seconds}: thời gian tách chunk.
+	\item \texttt{accuracy\_recall\_at\_k}: Recall@k nội bộ trên bộ pseudo-query tạo trực tiếp từ nội dung chunk.
+	\item \texttt{benchmark\_queries}: số lượng pseudo-query được dùng để tính quality score.
+\end{itemize}
+
+Việc chọn cấu hình chunk được thực hiện bằng cân bằng giữa độ chính xác truy xuất (Recall@k cao) và chi phí xử lý (split\_seconds thấp), thay vì tối ưu tốc độ đơn thuần.
+
 \subsection{Testing}
+Test suite đã bao phủ cả unit helpers và logic pipeline cốt lõi:
+\begin{itemize}
+	\item Prompt/UI helper tests.
+	\item DOCX ingestion test (bao gồm trích xuất table rows).
+	\item Metadata enrichment test sau khi ingest.
+	\item Benchmark metric test cho \texttt{accuracy\_recall\_at\_k}.
+	\item Re-ranking consistency test (không trộn tail chưa rerank).
+	\item Self-RAG confidence/fallback tests.
+\end{itemize}
+
 \subsection{Ưu điểm và hạn chế}
 
 \section{Hướng dẫn sử dụng}

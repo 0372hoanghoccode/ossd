@@ -52,6 +52,8 @@ class ChunkExperimentResult:
     chunk_overlap: int
     chunks: int
     split_seconds: float
+    accuracy_recall_at_k: float
+    benchmark_queries: int
 
 
 @dataclass
@@ -97,12 +99,81 @@ class RAGPipeline:
     def _load_docx(self, file_path: Path) -> list[Document]:
         parsed = docx.Document(str(file_path))
         paragraphs = [paragraph.text.strip() for paragraph in parsed.paragraphs if paragraph.text.strip()]
+
+        for table in parsed.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+                if cells:
+                    paragraphs.append(" | ".join(cells))
+
         content = "\n".join(paragraphs)
         return [Document(page_content=content, metadata={"source": str(file_path), "page": 1})]
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         return re.findall(r"\w+", text.lower())
+
+    def _build_benchmark_queries(
+        self,
+        split_docs: list[Document],
+        max_queries: int = 6,
+    ) -> list[tuple[str, int]]:
+        if not split_docs:
+            return []
+
+        if len(split_docs) <= max_queries:
+            sample_indices = list(range(len(split_docs)))
+        else:
+            step = (len(split_docs) - 1) / max(max_queries - 1, 1)
+            sample_indices = sorted({int(round(i * step)) for i in range(max_queries)})
+
+        queries: list[tuple[str, int]] = []
+        for idx in sample_indices:
+            tokens = self._tokenize(split_docs[idx].page_content)
+            if len(tokens) < 6:
+                continue
+            start = max((len(tokens) // 3) - 4, 0)
+            query_tokens = tokens[start : start + 8]
+            if not query_tokens:
+                continue
+            queries.append((" ".join(query_tokens), idx))
+        return queries
+
+    def _estimate_chunk_recall_at_k(
+        self,
+        split_docs: list[Document],
+        top_k: int,
+    ) -> tuple[float, int]:
+        if not split_docs:
+            return 0.0, 0
+
+        corpus = [self._tokenize(doc.page_content) for doc in split_docs]
+        if not corpus:
+            return 0.0, 0
+
+        bm25 = BM25Okapi(corpus)
+        benchmark_queries = self._build_benchmark_queries(split_docs)
+        if not benchmark_queries:
+            return 0.0, 0
+
+        effective_k = max(1, top_k)
+        hits = 0
+        evaluated = 0
+
+        for query, target_idx in benchmark_queries:
+            query_tokens = self._tokenize(query)
+            if not query_tokens:
+                continue
+            scores = bm25.get_scores(query_tokens)
+            ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+            top_indices = ranked_indices[:effective_k]
+            evaluated += 1
+            if target_idx in top_indices:
+                hits += 1
+
+        if evaluated == 0:
+            return 0.0, 0
+        return hits / evaluated, evaluated
 
     def _ensure_cross_encoder(self) -> Any | None:
         if self._cross_encoder is not None:
@@ -262,13 +333,13 @@ class RAGPipeline:
         if cross_encoder is None:
             return docs
 
-        top_n = min(self.settings.rerank_top_n, len(docs))
+        top_n = min(max(self.settings.rerank_top_n, 1), len(docs))
         candidates = docs[:top_n]
         pairs = [(query, doc.page_content) for doc in candidates]
         scores = cross_encoder.predict(pairs)
         ranked = sorted(zip(candidates, scores), key=lambda item: item[1], reverse=True)
 
-        reranked_docs = [doc for doc, _ in ranked] + docs[top_n:]
+        reranked_docs = [doc for doc, _ in ranked]
         for doc, score in ranked:
             doc.metadata["rerank_score"] = float(score)
         return reranked_docs
@@ -378,12 +449,18 @@ class RAGPipeline:
                 )
                 split_docs = splitter.split_documents(docs)
                 elapsed = time.perf_counter() - started
+                accuracy_recall_at_k, benchmark_queries = self._estimate_chunk_recall_at_k(
+                    split_docs,
+                    top_k=self.settings.retriever_k,
+                )
                 results.append(
                     ChunkExperimentResult(
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                         chunks=len(split_docs),
                         split_seconds=elapsed,
+                        accuracy_recall_at_k=accuracy_recall_at_k,
+                        benchmark_queries=benchmark_queries,
                     )
                 )
 
@@ -477,14 +554,15 @@ class RAGPipeline:
         generation_elapsed = time.perf_counter() - generate_started
 
         final_answer = str(answer).strip()
-        confidence = 0.6
-        rationale = "Base RAG answer generated."
+        confidence: float | None = None
+        rationale = ""
 
         if enable_self_rag:
             try:
                 reflection_prompt = build_self_reflection_prompt(question=question, answer=final_answer, context=context)
                 reflection_text = str(self._llm.invoke(reflection_prompt))
                 confidence, needs_rewrite, rewrite_query, rationale = parse_reflection(reflection_text)
+                rationale = rationale or "Self-RAG reflection completed."
 
                 if needs_rewrite and rewrite_query and rewrite_query.lower() != used_query.lower():
                     used_query = rewrite_query
@@ -509,13 +587,23 @@ class RAGPipeline:
                             )
                         )
                         second_confidence, _, _, second_rationale = parse_reflection(second_reflection)
-                        if second_confidence >= confidence:
+                        if second_confidence >= (confidence if confidence is not None else 0.0):
                             final_answer = second_answer
                             docs = second_docs
                             confidence = second_confidence
                             rationale = second_rationale or rationale
             except Exception as exc:
                 self.logger.warning("Self-RAG reflection failed: %s", exc)
+                confidence = 0.6
+                rationale = "Base RAG answer generated."
+        else:
+            confidence = 0.6
+            rationale = "Base RAG answer generated."
+
+        if confidence is None:
+            confidence = 0.6
+        if not rationale:
+            rationale = "Base RAG answer generated."
 
         self.logger.info(
             "Answered query in %.2fs (retrieve=%.2fs, generate=%.2fs)",

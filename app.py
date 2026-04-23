@@ -170,6 +170,8 @@ if run_benchmark_clicked:
                     "chunk_overlap": item.chunk_overlap,
                     "chunks": item.chunks,
                     "split_seconds": round(item.split_seconds, 4),
+                    "accuracy_recall_at_k": round(item.accuracy_recall_at_k, 4),
+                    "benchmark_queries": item.benchmark_queries,
                 }
                 for item in benchmark_results
             ]

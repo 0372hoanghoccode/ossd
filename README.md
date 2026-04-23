@@ -85,6 +85,35 @@ Sao chép `.env.example` thành `.env` và chỉnh các biến nếu cần:
 pytest -q
 ```
 
+Current test scope includes:
+
+- Prompt helpers and parsing
+- UI highlight helper
+- Pipeline logic: DOCX table extraction, ingestion metadata, chunk benchmark quality metric, rerank ordering, and Self-RAG confidence fallback
+
+## Chunk Benchmark Report (Speed + Quality)
+
+`Run Chunk Benchmark` now reports both performance and retrieval quality:
+
+- `chunks`: number of generated chunks
+- `split_seconds`: chunking time
+- `accuracy_recall_at_k`: internal Recall@k score from pseudo-query retrieval over the split chunks
+- `benchmark_queries`: number of pseudo-queries used for scoring
+
+Interpretation guideline:
+
+- Higher `accuracy_recall_at_k` means more reliable retrieval grounding.
+- Lower `split_seconds` means faster preprocessing.
+- Preferred chunk strategy should balance both values, not speed alone.
+
+Example result format:
+
+| chunk_size | chunk_overlap | chunks | split_seconds | accuracy_recall_at_k | benchmark_queries |
+| ---------- | ------------- | ------ | ------------- | -------------------- | ----------------- |
+| 500        | 50            | ...    | ...           | ...                  | ...               |
+| 1000       | 100           | ...    | ...           | ...                  | ...               |
+| 1500       | 200           | ...    | ...           | ...                  | ...               |
+
 ## Notes
 
 - Hệ thống chạy local 100%.
