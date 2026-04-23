@@ -36,6 +36,9 @@ os.environ.setdefault("USE_TF", "0")
 os.environ.setdefault("USE_TORCH", "1")
 
 
+_EMBEDDER_CACHE: dict[str, Any] = {}
+
+
 @dataclass
 class IngestionResult:
     source_paths: list[Path]
@@ -98,16 +101,23 @@ class RAGPipeline:
 
     def _load_docx(self, file_path: Path) -> list[Document]:
         parsed = docx.Document(str(file_path))
-        paragraphs = [paragraph.text.strip() for paragraph in parsed.paragraphs if paragraph.text.strip()]
+        blocks = [paragraph.text.strip() for paragraph in parsed.paragraphs if paragraph.text.strip()]
 
         for table in parsed.tables:
             for row in table.rows:
                 cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
                 if cells:
-                    paragraphs.append(" | ".join(cells))
+                    blocks.append(" | ".join(cells))
 
-        content = "\n".join(paragraphs)
-        return [Document(page_content=content, metadata={"source": str(file_path), "page": 1})]
+        documents: list[Document] = []
+        for idx, block_text in enumerate(blocks, start=1):
+            documents.append(
+                Document(
+                    page_content=block_text,
+                    metadata={"source": str(file_path), "page": idx},
+                )
+            )
+        return documents
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
@@ -191,11 +201,14 @@ class RAGPipeline:
         if self._embedder is not None:
             return self._embedder
         try:
-            self._embedder = HuggingFaceEmbeddings(
-                model_name=self.settings.embedding_model,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            model_key = self.settings.embedding_model
+            if model_key not in _EMBEDDER_CACHE:
+                _EMBEDDER_CACHE[model_key] = HuggingFaceEmbeddings(
+                    model_name=self.settings.embedding_model,
+                    model_kwargs={"device": "cpu"},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+            self._embedder = _EMBEDDER_CACHE[model_key]
             return self._embedder
         except ModuleNotFoundError as exc:
             if "sentence_transformers" in str(exc):
@@ -206,7 +219,7 @@ class RAGPipeline:
         except Exception as exc:
             raise RuntimeError(f"Failed to initialize embeddings: {exc}") from exc
 
-    def _rebuild_indices(self) -> None:
+    def _rebuild_indices(self, new_docs: list[Document] | None = None) -> None:
         if not self._all_documents:
             self._vector_store = None
             self._retriever = None
@@ -215,7 +228,11 @@ class RAGPipeline:
             return
 
         embedder = self._ensure_embedder()
-        self._vector_store = FAISS.from_documents(self._all_documents, embedder)
+        if self._vector_store is not None and new_docs:
+            self._vector_store.add_documents(new_docs)
+        else:
+            self._vector_store = FAISS.from_documents(self._all_documents, embedder)
+
         self._vector_store.save_local(str(self.settings.faiss_dir))
         self._retriever = self._vector_store.as_retriever(
             search_type=self.settings.retriever_search_type,
@@ -382,8 +399,8 @@ class RAGPipeline:
     ) -> IngestionResult:
         started = time.perf_counter()
 
-        effective_chunk_size = chunk_size or self.settings.chunk_size
-        effective_chunk_overlap = chunk_overlap or self.settings.chunk_overlap
+        effective_chunk_size = chunk_size if chunk_size is not None else self.settings.chunk_size
+        effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else self.settings.chunk_overlap
 
         all_new_docs: list[Document] = []
         source_paths: list[Path] = []
@@ -411,7 +428,7 @@ class RAGPipeline:
                 all_new_docs.append(doc)
 
         self._all_documents.extend(all_new_docs)
-        self._rebuild_indices()
+        self._rebuild_indices(new_docs=all_new_docs)
 
         elapsed = time.perf_counter() - started
         self.logger.info(
@@ -511,7 +528,7 @@ class RAGPipeline:
         history_text = format_chat_history(chat_history, self.settings.conversational_memory_turns)
 
         used_query = question
-        if conversational and history_text:
+        if conversational and chat_history:
             try:
                 rewrite_prompt = build_query_rewrite_prompt(question=question, chat_history=history_text)
                 rewritten = str(self._llm.invoke(rewrite_prompt)).strip()
@@ -558,44 +575,48 @@ class RAGPipeline:
         rationale = ""
 
         if enable_self_rag:
-            try:
-                reflection_prompt = build_self_reflection_prompt(question=question, answer=final_answer, context=context)
-                reflection_text = str(self._llm.invoke(reflection_prompt))
-                confidence, needs_rewrite, rewrite_query, rationale = parse_reflection(reflection_text)
-                rationale = rationale or "Self-RAG reflection completed."
+            if not context.strip():
+                confidence = 0.0
+                rationale = "No context to reflect on."
+            else:
+                try:
+                    reflection_prompt = build_self_reflection_prompt(question=question, answer=final_answer, context=context)
+                    reflection_text = str(self._llm.invoke(reflection_prompt))
+                    confidence, needs_rewrite, rewrite_query, rationale = parse_reflection(reflection_text)
+                    rationale = rationale or "Self-RAG reflection completed."
 
-                if needs_rewrite and rewrite_query and rewrite_query.lower() != used_query.lower():
-                    used_query = rewrite_query
-                    second_docs = self._retrieve(used_query, retrieval_mode, metadata_filters)
-                    if enable_rerank:
-                        second_docs = self._rerank(used_query, second_docs)
-                    if second_docs:
-                        second_context = "\n\n".join(doc.page_content for doc in second_docs)
-                        second_prompt = (
-                            build_conversational_prompt(second_context, question, history_text)
-                            if conversational
-                            else build_prompt(second_context, question)
-                        )
-                        second_answer = str(self._llm.invoke(second_prompt)).strip()
-                        second_reflection = str(
-                            self._llm.invoke(
-                                build_self_reflection_prompt(
-                                    question=question,
-                                    answer=second_answer,
-                                    context=second_context,
+                    if needs_rewrite and rewrite_query and rewrite_query.lower() != used_query.lower():
+                        used_query = rewrite_query
+                        second_docs = self._retrieve(used_query, retrieval_mode, metadata_filters)
+                        if enable_rerank:
+                            second_docs = self._rerank(used_query, second_docs)
+                        if second_docs:
+                            second_context = "\n\n".join(doc.page_content for doc in second_docs)
+                            second_prompt = (
+                                build_conversational_prompt(second_context, question, history_text)
+                                if conversational
+                                else build_prompt(second_context, question)
+                            )
+                            second_answer = str(self._llm.invoke(second_prompt)).strip()
+                            second_reflection = str(
+                                self._llm.invoke(
+                                    build_self_reflection_prompt(
+                                        question=question,
+                                        answer=second_answer,
+                                        context=second_context,
+                                    )
                                 )
                             )
-                        )
-                        second_confidence, _, _, second_rationale = parse_reflection(second_reflection)
-                        if second_confidence >= (confidence if confidence is not None else 0.0):
-                            final_answer = second_answer
-                            docs = second_docs
-                            confidence = second_confidence
-                            rationale = second_rationale or rationale
-            except Exception as exc:
-                self.logger.warning("Self-RAG reflection failed: %s", exc)
-                confidence = 0.6
-                rationale = "Base RAG answer generated."
+                            second_confidence, _, _, second_rationale = parse_reflection(second_reflection)
+                            if second_confidence >= (confidence if confidence is not None else 0.0):
+                                final_answer = second_answer
+                                docs = second_docs
+                                confidence = second_confidence
+                                rationale = second_rationale or rationale
+                except Exception as exc:
+                    self.logger.warning("Self-RAG reflection failed: %s", exc)
+                    confidence = 0.6
+                    rationale = "Base RAG answer generated."
         else:
             confidence = 0.6
             rationale = "Base RAG answer generated."

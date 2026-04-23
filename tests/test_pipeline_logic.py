@@ -80,11 +80,11 @@ def test_load_docx_extracts_paragraphs_and_tables(monkeypatch: pytest.MonkeyPatc
 
     loaded = pipeline._load_docx(sample_docx)
 
-    assert len(loaded) == 1
-    content = loaded[0].page_content
-    assert "Executive summary" in content
-    assert "Control | Status" in content
-    assert "AC-1 | Implemented" in content
+    assert len(loaded) == 3
+    assert loaded[0].page_content == "Executive summary"
+    assert loaded[1].page_content == "Control | Status"
+    assert loaded[2].page_content == "AC-1 | Implemented"
+    assert [doc.metadata["page"] for doc in loaded] == [1, 2, 3]
 
 
 def test_ingest_files_populates_required_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -95,7 +95,7 @@ def test_ingest_files_populates_required_metadata(monkeypatch: pytest.MonkeyPatc
         return tmp_path / "fake.docx", [Document(page_content=text, metadata={"page": 1})]
 
     monkeypatch.setattr(pipeline, "_load_uploaded_documents", fake_loader)
-    monkeypatch.setattr(pipeline, "_rebuild_indices", lambda: None)
+    monkeypatch.setattr(pipeline, "_rebuild_indices", lambda *_args, **_kwargs: None)
 
     result = pipeline.ingest_files([FakeUploadedFile(name="audit.docx")], chunk_size=80, chunk_overlap=10)
 
@@ -107,6 +107,39 @@ def test_ingest_files_populates_required_metadata(monkeypatch: pytest.MonkeyPatc
     assert first.metadata["chunk_id"] >= 1
     assert "uploaded_at" in first.metadata
     assert "start_index" in first.metadata
+
+
+def test_ingest_files_uses_explicit_none_check_for_chunk_args(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path, chunk_size=120, chunk_overlap=20)
+
+    captured: dict[str, int] = {}
+
+    class FakeSplitter:
+        def __init__(self, *, chunk_size: int, chunk_overlap: int, add_start_index: bool):
+            captured["chunk_size"] = chunk_size
+            captured["chunk_overlap"] = chunk_overlap
+            captured["add_start_index"] = int(add_start_index)
+
+        def split_documents(self, docs: list[Document]) -> list[Document]:
+            return docs
+
+    def fake_loader(_uploaded: object) -> tuple[Path, list[Document]]:
+        return tmp_path / "fake.docx", [Document(page_content="abc", metadata={"page": 1})]
+
+    monkeypatch.setattr(pipeline_module, "RecursiveCharacterTextSplitter", FakeSplitter)
+    monkeypatch.setattr(pipeline, "_load_uploaded_documents", fake_loader)
+    monkeypatch.setattr(pipeline, "_rebuild_indices", lambda *_args, **_kwargs: None)
+
+    pipeline.ingest_files([FakeUploadedFile(name="a.docx")], chunk_size=0, chunk_overlap=0)
+    assert captured["chunk_size"] == 0
+    assert captured["chunk_overlap"] == 0
+
+    pipeline.ingest_files([FakeUploadedFile(name="a.docx")], chunk_size=None, chunk_overlap=None)
+    assert captured["chunk_size"] == pipeline.settings.chunk_size
+    assert captured["chunk_overlap"] == pipeline.settings.chunk_overlap
 
 
 def test_benchmark_chunk_strategies_includes_accuracy_metric(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -143,6 +176,104 @@ def test_benchmark_chunk_strategies_includes_accuracy_metric(monkeypatch: pytest
     row = results[0]
     assert 0.0 <= row.accuracy_recall_at_k <= 1.0
     assert row.benchmark_queries > 0
+
+
+def test_embedder_is_cached_across_pipeline_instances(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    created: list[object] = []
+
+    class FakeEmbeddings:
+        def __init__(self, **_kwargs: object):
+            created.append(self)
+
+    monkeypatch.setattr(pipeline_module, "HuggingFaceEmbeddings", FakeEmbeddings)
+
+    first = make_pipeline(monkeypatch, tmp_path, embedding_model="cached-model")
+    second = make_pipeline(monkeypatch, tmp_path, embedding_model="cached-model")
+
+    first_embedder = first._ensure_embedder()
+    second_embedder = second._ensure_embedder()
+
+    assert len(created) == 1
+    assert first_embedder is second_embedder
+
+
+def test_rebuild_indices_uses_incremental_add_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    pipeline._all_documents = [Document(page_content="old content", metadata={"source_name": "old.docx"})]
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.added_docs: list[Document] = []
+            self.saved_paths: list[str] = []
+
+        def add_documents(self, docs: list[Document]) -> None:
+            self.added_docs.extend(docs)
+
+        def save_local(self, path: str) -> None:
+            self.saved_paths.append(path)
+
+        def as_retriever(self, **kwargs: object) -> dict[str, object]:
+            return {"retriever": True, "kwargs": kwargs}
+
+    fake_store = FakeStore()
+    from_documents_calls: list[int] = []
+
+    class FakeFAISS:
+        @staticmethod
+        def from_documents(docs: list[Document], _embedder: object) -> FakeStore:
+            from_documents_calls.append(len(docs))
+            return FakeStore()
+
+    new_doc = Document(page_content="new content", metadata={"source_name": "new.docx"})
+    pipeline._all_documents.append(new_doc)
+    pipeline._vector_store = fake_store
+
+    monkeypatch.setattr(pipeline, "_ensure_embedder", lambda: object())
+    monkeypatch.setattr(pipeline_module, "FAISS", FakeFAISS)
+
+    pipeline._rebuild_indices(new_docs=[new_doc])
+
+    assert from_documents_calls == []
+    assert fake_store.added_docs == [new_doc]
+    assert pipeline._retriever["retriever"] is True
+    assert pipeline._bm25_index is not None
+
+
+def test_rebuild_indices_falls_back_to_full_build_when_store_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    pipeline._all_documents = [Document(page_content="doc one", metadata={})]
+
+    from_documents_calls: list[int] = []
+
+    class FakeStore:
+        def save_local(self, _path: str) -> None:
+            return
+
+        def as_retriever(self, **_kwargs: object) -> dict[str, bool]:
+            return {"ok": True}
+
+    class FakeFAISS:
+        @staticmethod
+        def from_documents(docs: list[Document], _embedder: object) -> FakeStore:
+            from_documents_calls.append(len(docs))
+            return FakeStore()
+
+    monkeypatch.setattr(pipeline, "_ensure_embedder", lambda: object())
+    monkeypatch.setattr(pipeline_module, "FAISS", FakeFAISS)
+
+    pipeline._rebuild_indices(new_docs=[Document(page_content="new", metadata={})])
+
+    assert from_documents_calls == [1]
+    assert pipeline._retriever == {"ok": True}
 
 
 def test_rerank_returns_only_reranked_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -209,6 +340,81 @@ def test_answer_self_rag_confidence_comes_from_reflection(monkeypatch: pytest.Mo
     assert result.answer == "Base answer"
     assert result.confidence == 0.87
     assert result.rationale == "reflection ok"
+
+
+def test_answer_skips_query_rewrite_without_chat_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    pipeline._all_documents = [Document(page_content="seed", metadata={})]
+
+    docs = [Document(page_content="retrieved context", metadata={"source_name": "doc.pdf", "chunk_id": 1})]
+    monkeypatch.setattr(pipeline, "_retrieve", lambda *_args, **_kwargs: docs)
+
+    llm = pipeline._llm
+    assert isinstance(llm, FakeLLM)
+    llm.responses = ["Base answer"]
+
+    result = pipeline.answer(
+        question="Follow-up question",
+        conversational=True,
+        chat_history=[],
+    )
+
+    assert result.used_query == "Follow-up question"
+    assert len(llm.prompts) == 1
+    assert "Rewrite the current user question" not in llm.prompts[0]
+
+
+def test_answer_uses_query_rewrite_with_chat_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    pipeline._all_documents = [Document(page_content="seed", metadata={})]
+
+    docs = [Document(page_content="retrieved context", metadata={"source_name": "doc.pdf", "chunk_id": 1})]
+    monkeypatch.setattr(pipeline, "_retrieve", lambda *_args, **_kwargs: docs)
+
+    llm = pipeline._llm
+    assert isinstance(llm, FakeLLM)
+    llm.responses = ["rewritten query", "Base answer"]
+
+    result = pipeline.answer(
+        question="And what next?",
+        conversational=True,
+        chat_history=[{"question": "Before", "answer": "Earlier response"}],
+    )
+
+    assert result.used_query == "rewritten query"
+    assert any("Rewrite the current user question" in prompt for prompt in llm.prompts)
+
+
+def test_answer_self_rag_skips_reflection_when_context_is_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    pipeline._all_documents = [Document(page_content="seed", metadata={})]
+
+    docs = [Document(page_content="   ", metadata={"source_name": "doc.pdf", "chunk_id": 1})]
+    monkeypatch.setattr(pipeline, "_retrieve", lambda *_args, **_kwargs: docs)
+
+    llm = pipeline._llm
+    assert isinstance(llm, FakeLLM)
+    llm.responses = ["Base answer"]
+
+    result = pipeline.answer(
+        question="What is this?",
+        conversational=False,
+        enable_self_rag=True,
+    )
+
+    assert result.answer == "Base answer"
+    assert result.confidence == 0.0
+    assert result.rationale == "No context to reflect on."
+    assert len(llm.prompts) == 1
 
 
 def test_answer_self_rag_reflection_failure_has_clear_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
