@@ -98,6 +98,7 @@ def _parse_json_robust(text: str) -> dict:
         return {}
 
     candidate = str(text).strip()
+    candidate = re.sub(r"<think>.*?</think>", "", candidate, flags=re.DOTALL).strip()
     fenced = re.match(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", candidate, flags=re.IGNORECASE | re.DOTALL)
     if fenced:
         candidate = fenced.group(1).strip()
@@ -302,7 +303,7 @@ def run_corag(
     safe_parts = _safe_required_parts(required_parts, safe_question)
 
     discovered_entities: dict[str, str] = {}
-    seen_queries: set[str] = {_normalize_query(safe_question)}
+    seen_queries: set[str] = set()
     seen_doc_keys: set[str] = set()
     context_pool: list[Document] = []
     chain: list[CoRAGStep] = []
@@ -312,6 +313,8 @@ def run_corag(
     effective_k = max(1, int(step_k))
 
     for step in range(1, effective_steps + 1):
+        seen_queries.add(_normalize_query(current_query))
+
         try:
             retrieved_docs = retrieve_fn(current_query, effective_k)
         except Exception:
@@ -369,7 +372,6 @@ def run_corag(
         if normalized_next in seen_queries:
             break
 
-        seen_queries.add(normalized_next)
         current_query = next_query
 
     final_context = _build_context_string(context_pool, safe_question, top_n=10)

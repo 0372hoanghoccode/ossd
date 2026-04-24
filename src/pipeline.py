@@ -727,13 +727,23 @@ class RAGPipeline:
             required_parts = self.decompose_question(question)
 
             def retrieve_fn(query: str, k: int) -> list[Document]:
-                docs = self._retrieve(query, retrieval_mode, metadata_filters)
+                effective_fetch = max(k, self.settings.bm25_fetch_k)
+
+                if retrieval_mode == "hybrid":
+                    docs = self._hybrid_retrieve(query, effective_fetch, metadata_filters)
+                elif retrieval_mode == "keyword":
+                    docs = self._keyword_retrieve(query, effective_fetch, metadata_filters)
+                else:
+                    docs = self._vector_retrieve(query, effective_fetch, metadata_filters)
+
                 if enable_rerank:
                     docs = self._rerank(query, docs)
                 return docs[: max(k, 1)]
 
             def llm_invoke_fn(prompt: str) -> str:
-                return str(self._llm.invoke(prompt)).strip()
+                raw = str(self._llm.invoke(prompt)).strip()
+                raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+                return raw
 
             corag_result = run_corag(
                 question=question,
