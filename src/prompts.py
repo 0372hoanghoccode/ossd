@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 
@@ -133,3 +134,156 @@ def parse_reflection(text: str) -> tuple[float, bool, str, str]:
     rationale = rationale_match.group(1).strip() if rationale_match else ""
 
     return confidence, needs_rewrite, rewrite_query, rationale
+
+
+def build_corag_decompose_prompt(question: str) -> str:
+    if is_vietnamese(question):
+        return f"""Tách câu hỏi thành các phần thông tin nguyên tử cần truy xuất cho CoRAG.
+Yêu cầu:
+- Tối đa 5 phần.
+- Mỗi phần phải có thể truy xuất độc lập bằng tìm kiếm.
+- KHÔNG tách rời thực thể tên riêng (ví dụ tên đội, tên model, tên người, tên cluster).
+- Mỗi phần nên là cụm từ truy vấn, không phải câu dài.
+- Trả về DUY NHẤT JSON hợp lệ theo đúng schema: {{"parts": ["part1", "part2"]}}
+- Không thêm markdown, không thêm giải thích.
+
+Câu hỏi:
+{question}
+"""
+
+    return f"""Decompose the question into atomic, independently retrievable parts for CoRAG.
+Requirements:
+- Maximum 5 parts.
+- Each part must be independently searchable.
+- DO NOT split proper nouns or named entities (team names, model names, person names, cluster names).
+- Each part should be a search-worthy phrase, not a full sentence.
+- Return ONLY valid JSON with this exact schema: {{"parts": ["part1", "part2"]}}
+- No markdown, no explanation.
+
+Question:
+{question}
+"""
+
+
+def build_corag_evaluator_prompt(
+    question: str,
+    required_parts: list[str],
+    context: str,
+    discovered_entities: dict[str, str],
+) -> str:
+    required_parts_json = json.dumps(required_parts, ensure_ascii=False)
+    discovered_json = json.dumps(discovered_entities, ensure_ascii=False)
+
+    if is_vietnamese(question):
+        return f"""Bạn là evaluator cho TRUE CoRAG.
+Nhiệm vụ chính: đánh giá bằng chứng theo từng required part và tạo next_query có neo thực thể cụ thể.
+
+Đầu vào:
+- question: {question}
+- required_parts: {required_parts_json}
+- discovered_entities (đã tìm được từ các bước trước): {discovered_json}
+
+Quy tắc bắt buộc:
+1) Với MỖI required part, chỉ đánh dấu covered=true nếu context có bằng chứng TƯỜNG MINH
+   (tên cụ thể, số cụ thể, ngày cụ thể, giá trị cụ thể).
+2) sufficient=true CHỈ khi tất cả required parts đều covered=true.
+3) Không được dùng kiến thức nền của mô hình để lấp chỗ trống.
+4) Khi còn thiếu: chọn missing part quan trọng nhất và tạo next_query DUY NHẤT có neo vào thực thể cụ thể đã biết.
+   - Truy vấn mơ hồ là sai.
+   - Truy vấn đúng phải chứa entity cụ thể từ discovered_entities hoặc context hiện tại.
+5) Trích xuất new_entities phát hiện được ở bước này dưới dạng dict key-value.
+
+Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích:
+{{
+  "sufficient": false,
+  "evidence_map": [
+    {{"part": "...", "covered": true, "value": "..."}},
+    {{"part": "...", "covered": false, "value": null}}
+  ],
+  "missing_parts": ["..."],
+  "next_query": "...",
+  "new_entities": {{"...": "..."}},
+  "reasoning": "..."
+}}
+
+Context:
+{context}
+"""
+
+    return f"""You are the evaluator for TRUE CoRAG.
+Primary task: verify explicit evidence per required part and produce an entity-grounded next_query.
+
+Inputs:
+- question: {question}
+- required_parts: {required_parts_json}
+- discovered_entities from previous steps: {discovered_json}
+
+Hard rules:
+1) For EACH required part, set covered=true only when explicit evidence exists in context
+   (specific name, number, date, or value).
+2) sufficient=true ONLY when all required parts are explicitly covered.
+3) Never use background knowledge to fill missing facts.
+4) If something is missing: pick the most important missing part and produce ONE next_query
+   grounded on concrete known entities from discovered_entities or current context.
+   - Vague pronoun-based queries are invalid.
+5) Extract newly discovered entities in this step as key-value pairs in new_entities.
+
+Return ONLY valid JSON (no markdown, no explanations):
+{{
+  "sufficient": false,
+  "evidence_map": [
+    {{"part": "...", "covered": true, "value": "..."}},
+    {{"part": "...", "covered": false, "value": null}}
+  ],
+  "missing_parts": ["..."],
+  "next_query": "...",
+  "new_entities": {{"...": "..."}},
+  "reasoning": "..."
+}}
+
+Context:
+{context}
+"""
+
+
+def build_corag_final_answer_prompt(
+    question: str,
+    context: str,
+    language: str = "vi",
+) -> str:
+    lang = language
+    if lang not in {"vi", "en"}:
+        lang = "vi" if is_vietnamese(question) else "en"
+
+    if lang == "vi":
+        return f"""Trả lời câu hỏi chỉ dựa trên context bên dưới.
+Yêu cầu:
+- Trả lời ngắn gọn, đúng sự kiện.
+- Trình bày theo từng ý thông tin cần thiết.
+- Nếu thiếu dữ liệu cho phần nào, ghi rõ: "Không tìm thấy: <phần thiếu>".
+- Không dùng kiến thức ngoài context.
+
+Câu hỏi:
+{question}
+
+Context:
+{context}
+
+Trả lời:
+"""
+
+    return f"""Answer the question using ONLY the context below.
+Requirements:
+- Keep the response concise and factual.
+- Structure answer by required facts.
+- If any part is missing, explicitly state: "Not found: <missing part>".
+- Do not use external/background knowledge.
+
+Question:
+{question}
+
+Context:
+{context}
+
+Answer:
+"""

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 
 from src.config import load_settings
+from src.corag_engine import CoRAGResult, CoRAGStep
 from src.pipeline import RAGPipeline
 from src.ui import render_chat_history, render_sidebar, render_source_preview
 from src.utils.logging import configure_logging
@@ -47,6 +50,16 @@ if "filter_source_names" not in st.session_state:
     st.session_state["filter_source_names"] = []
 if "filter_doc_types" not in st.session_state:
     st.session_state["filter_doc_types"] = []
+if "corag_result" not in st.session_state:
+    st.session_state["corag_result"] = None
+if "corag_result_raw" not in st.session_state:
+    st.session_state["corag_result_raw"] = None
+if "corag_time" not in st.session_state:
+    st.session_state["corag_time"] = 0.0
+if "enable_corag_compare" not in st.session_state:
+    st.session_state["enable_corag_compare"] = False
+if "corag_max_steps" not in st.session_state:
+    st.session_state["corag_max_steps"] = 4
 
 pipeline: RAGPipeline = st.session_state["pipeline"]
 
@@ -99,6 +112,26 @@ with st.sidebar:
         "Self-RAG reflection",
         value=st.session_state["enable_self_rag"],
     )
+
+    st.subheader("CoRAG Comparison")
+    enable_corag_compare = st.checkbox(
+        "Compare RAG vs CoRAG",
+        value=st.session_state["enable_corag_compare"],
+        key="enable_corag_compare",
+    )
+    if enable_corag_compare:
+        corag_max_steps = st.slider(
+            "CoRAG max_steps",
+            min_value=2,
+            max_value=6,
+            value=st.session_state.get("corag_max_steps", 4),
+            key="corag_max_steps",
+        )
+        if corag_max_steps > 4:
+            st.warning("⚠️ max_steps > 4 có thể chậm với local LLM (~30-60s)")
+    else:
+        corag_max_steps = 4
+        st.session_state["corag_max_steps"] = 4
 
     st.subheader("Metadata Filter")
     st.session_state["filter_source_names"] = st.multiselect(
@@ -208,6 +241,10 @@ question = st.text_input("Nhập câu hỏi về nội dung tài liệu")
 ask_clicked = st.button("Get Answer", disabled=not pipeline.is_ready or not question.strip())
 if ask_clicked:
     try:
+        st.session_state["corag_result"] = None
+        st.session_state["corag_result_raw"] = None
+        st.session_state["corag_time"] = 0.0
+
         metadata_filters = {
             "source_name": st.session_state["filter_source_names"],
             "doc_type": st.session_state["filter_doc_types"],
@@ -235,6 +272,34 @@ if ask_clicked:
             f"Done [{answer_result.mode}] | retrieve={answer_result.retrieval_seconds:.2f}s, "
             f"generate={answer_result.generation_seconds:.2f}s"
         )
+
+        if st.session_state.get("enable_corag_compare"):
+            with st.status("CoRAG đang suy luận từng bước...", expanded=True) as corag_status:
+                corag_steps_placeholder = st.empty()
+                live_steps: list[CoRAGStep] = []
+
+                def on_step(step: CoRAGStep) -> None:
+                    live_steps.append(step)
+                    with corag_steps_placeholder.container():
+                        for item in live_steps:
+                            st.caption(
+                                f"Step {item.step}: '{item.query[:50]}...' "
+                                f"-> {item.retrieved_count} docs, sufficient={item.sufficient}"
+                            )
+
+                corag_t0 = time.perf_counter()
+                corag_result = pipeline.answer_corag(
+                    question=question.strip(),
+                    max_steps=st.session_state.get("corag_max_steps", 4),
+                    retrieval_mode=st.session_state["retrieval_mode"],
+                    metadata_filters=metadata_filters,
+                    enable_rerank=st.session_state["enable_rerank"],
+                    step_callback=on_step,
+                )
+                st.session_state["corag_time"] = time.perf_counter() - corag_t0
+                st.session_state["corag_result"] = corag_result
+                st.session_state["corag_result_raw"] = pipeline._last_corag_result
+                corag_status.update(label="CoRAG hoàn thành!", state="complete")
     except Exception as exc:
         logger.exception("Question answering failed")
         st.error(f"Lỗi khi trả lời: {exc}")
@@ -247,5 +312,45 @@ if st.session_state["last_answer"]:
     )
     if st.session_state["last_rationale"]:
         st.caption(f"self-rag rationale: {st.session_state['last_rationale']}")
+
+if st.session_state.get("enable_corag_compare") and st.session_state.get("corag_result"):
+    st.divider()
+    st.subheader("RAG vs CoRAG Comparison")
+
+    col_rag, col_corag = st.columns(2)
+    with col_rag:
+        st.markdown("**RAG**")
+        st.write(st.session_state["last_answer"])
+
+    with col_corag:
+        st.markdown("**CoRAG**")
+        st.write(st.session_state["corag_result"].answer)
+
+    raw_result = st.session_state.get("corag_result_raw")
+    if isinstance(raw_result, CoRAGResult):
+        metric_col_1, metric_col_2, metric_col_3 = st.columns(3)
+        metric_col_1.metric("Steps (RAG / CoRAG)", f"1 / {raw_result.steps}")
+        metric_col_2.metric(
+            "Docs (RAG / CoRAG)",
+            f"{len(st.session_state['last_sources'])} / {raw_result.total_docs}",
+        )
+        metric_col_3.metric(
+            "Confidence (RAG / CoRAG)",
+            f"{st.session_state['last_confidence']:.2f} / {st.session_state['corag_result'].confidence:.2f}",
+        )
+
+        st.subheader("CoRAG Chain Trace")
+        for step in raw_result.chain:
+            label = f"Step {step.step}: {step.query[:60]}{'...' if len(step.query) > 60 else ''}"
+            with st.expander(label, expanded=False):
+                st.write(f"Retrieved: {step.retrieved_count} new docs")
+                st.write(f"Sufficient: {step.sufficient}")
+                if step.discovered_entities:
+                    st.write(f"Entities found: {step.discovered_entities}")
+                if step.missing_parts:
+                    st.write(f"Still missing: {', '.join(step.missing_parts)}")
+                if step.next_query:
+                    st.write(f"Next query: {step.next_query}")
+                st.caption(f"Reasoning: {step.reasoning}")
 
 render_source_preview(query=st.session_state["last_question"])

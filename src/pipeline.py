@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, Callable
 
 import docx
 from langchain_community.document_loaders import PDFPlumberLoader
@@ -20,7 +20,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rank_bm25 import BM25Okapi
 
 from src.config import Settings
+from src.corag_engine import CoRAGResult, CoRAGStep, _parse_json_robust, run_corag
 from src.prompts import (
+    build_corag_decompose_prompt,
     build_conversational_prompt,
     build_prompt,
     build_query_rewrite_prompt,
@@ -86,6 +88,7 @@ class RAGPipeline:
         self._bm25_index: BM25Okapi | None = None
         self._bm25_corpus: list[list[str]] = []
         self._cross_encoder: Any | None = None
+        self._last_corag_result: CoRAGResult | None = None
 
     @property
     def is_ready(self) -> bool:
@@ -360,6 +363,49 @@ class RAGPipeline:
         for doc, score in ranked:
             doc.metadata["rerank_score"] = float(score)
         return reranked_docs
+
+    def decompose_question(self, question: str) -> list[str]:
+        """
+        Decompose question into atomic retrievable parts for CoRAG.
+        Never raises and always returns at least one part.
+        """
+        safe_question = question.strip() or question
+
+        def dedupe_parts(parts: list[str]) -> list[str]:
+            cleaned: list[str] = []
+            seen: set[str] = set()
+            for part in parts:
+                text = str(part).strip()
+                if not text:
+                    continue
+                key = text.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                cleaned.append(text)
+            return cleaned[:5]
+
+        try:
+            prompt = build_corag_decompose_prompt(safe_question)
+            raw = str(self._llm.invoke(prompt)).strip()
+            parsed = _parse_json_robust(raw)
+            raw_parts = parsed.get("parts", [])
+            if isinstance(raw_parts, list):
+                parts = dedupe_parts([str(item) for item in raw_parts])
+                if parts:
+                    return parts
+        except Exception as exc:
+            self.logger.warning("CoRAG question decomposition failed, fallback to heuristic split: %s", exc)
+
+        try:
+            split_candidates = re.split(r"\s*(?:,|;|\band\b|\bvà\b|\?|\.)\s*", safe_question, flags=re.IGNORECASE)
+            heuristic = dedupe_parts(split_candidates)
+            if heuristic:
+                return heuristic
+        except Exception:
+            pass
+
+        return [safe_question] if safe_question else [question]
 
     def _detect_file_type(self, uploaded_file: Any) -> tuple[str, str]:
         filename = (uploaded_file.name or "").lower()
@@ -643,3 +689,103 @@ class RAGPipeline:
             rationale=rationale,
             used_query=used_query,
         )
+
+    def answer_corag(
+        self,
+        question: str,
+        max_steps: int = 4,
+        retrieval_mode: str = "vector",
+        metadata_filters: dict[str, list[str]] | None = None,
+        enable_rerank: bool = False,
+        step_callback: Callable[[CoRAGStep], None] | None = None,
+    ) -> AnswerResult:
+        """
+        Run CoRAG loop using existing retrieval infrastructure.
+        Never raises: on errors, returns a fallback AnswerResult.
+        """
+        started = time.perf_counter()
+        self._last_corag_result = None
+
+        try:
+            if not self._all_documents:
+                no_data_answer = (
+                    "Retriever chưa sẵn sàng. Vui lòng upload và index tài liệu trước."
+                    if is_vietnamese(question)
+                    else "Retriever is not initialized. Upload and process a document first."
+                )
+                return AnswerResult(
+                    answer=no_data_answer,
+                    sources=[],
+                    retrieval_seconds=0.0,
+                    generation_seconds=0.0,
+                    mode=f"corag-{retrieval_mode}",
+                    confidence=0.0,
+                    rationale="No indexed documents available.",
+                    used_query=question,
+                )
+
+            required_parts = self.decompose_question(question)
+
+            def retrieve_fn(query: str, k: int) -> list[Document]:
+                docs = self._retrieve(query, retrieval_mode, metadata_filters)
+                if enable_rerank:
+                    docs = self._rerank(query, docs)
+                return docs[: max(k, 1)]
+
+            def llm_invoke_fn(prompt: str) -> str:
+                return str(self._llm.invoke(prompt)).strip()
+
+            corag_result = run_corag(
+                question=question,
+                retrieve_fn=retrieve_fn,
+                llm_invoke_fn=llm_invoke_fn,
+                required_parts=required_parts,
+                max_steps=max_steps,
+                step_k=self.settings.retriever_k,
+                step_callback=step_callback,
+            )
+            self._last_corag_result = corag_result
+
+            seen_sources: set[str] = set()
+            unique_sources: list[Document] = []
+            for doc in corag_result.all_docs:
+                key = (
+                    f"{doc.metadata.get('source_name', '')}|"
+                    f"{doc.metadata.get('chunk_id', '')}|"
+                    f"{doc.metadata.get('start_index', '')}|"
+                    f"{hash(doc.page_content)}"
+                )
+                if key in seen_sources:
+                    continue
+                seen_sources.add(key)
+                unique_sources.append(doc)
+
+            elapsed = time.perf_counter() - started
+            return AnswerResult(
+                answer=corag_result.answer,
+                sources=unique_sources[: self.settings.retriever_k],
+                retrieval_seconds=elapsed,
+                generation_seconds=0.0,
+                mode=f"corag-{retrieval_mode}",
+                confidence=1.0 if corag_result.sufficient else 0.5,
+                rationale=f"{corag_result.steps} steps, {corag_result.total_docs} unique docs",
+                used_query=question,
+            )
+        except Exception as exc:
+            self.logger.exception("CoRAG answering failed")
+            fallback = (
+                f"CoRAG gặp lỗi và không thể hoàn tất: {exc}"
+                if is_vietnamese(question)
+                else f"CoRAG failed to complete: {exc}"
+            )
+            elapsed = time.perf_counter() - started
+            return AnswerResult(
+                answer=fallback,
+                sources=[],
+                retrieval_seconds=elapsed,
+                generation_seconds=0.0,
+                mode=f"corag-{retrieval_mode}",
+                confidence=0.0,
+                rationale="CoRAG execution fallback due to runtime error.",
+                used_query=question,
+            )
