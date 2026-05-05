@@ -41,6 +41,100 @@ Question:
 Answer:"""
 
 
+def _format_sources_context(docs: list) -> str:
+    """Format documents with source labels for multi-document attribution."""
+    parts: list[str] = []
+    for i, doc in enumerate(docs, 1):
+        source_name = doc.metadata.get("source_name", doc.metadata.get("source", "unknown"))
+        page = doc.metadata.get("page", "?")
+        parts.append(
+            f"[Nguồn: {source_name} | Trang {page}]\n{doc.page_content}"
+        )
+    return "\n\n---\n\n".join(parts)
+
+
+def build_multi_doc_prompt(docs: list, question: str) -> str:
+    context = _format_sources_context(docs)
+    if is_vietnamese(question):
+        return f"""Bạn là trợ lý hỏi đáp đa tài liệu (Multi-document RAG).
+Sử dụng ngữ cảnh từ NHIỀU tài liệu để trả lời câu hỏi.
+
+Quy tắc:
+- Trả lời ngắn gọn (3-5 câu) bằng tiếng Việt.
+- Với mỗi thông tin trong câu trả lời, GHI RÕ nguồn tài liệu bằng cú pháp [Nguồn: tên_file].
+- Nếu thông tin đến từ nhiều tài liệu, liệt kê tất cả nguồn.
+- Nếu không biết, nói rõ.
+
+Ngữ cảnh:
+{context}
+
+Câu hỏi:
+{question}
+
+Trả lời (ghi rõ nguồn):"""
+
+    return f"""You are a multi-document RAG assistant.
+Use context from MULTIPLE documents to answer the question.
+
+Rules:
+- Keep the answer concise (3-5 sentences).
+- For each piece of information, CITE the source document using [Source: filename].
+- If information comes from multiple documents, list all sources.
+- If you don't know, say so.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer (cite sources):"""
+
+
+def build_multi_doc_conversational_prompt(
+    docs: list, question: str, chat_history: str,
+) -> str:
+    context = _format_sources_context(docs)
+    if is_vietnamese(question):
+        return f"""Bạn là trợ lý hỏi đáp đa tài liệu (Multi-document RAG).
+Sử dụng lịch sử hội thoại và ngữ cảnh từ NHIỀU tài liệu để trả lời.
+
+Quy tắc:
+- Trả lời ngắn gọn (3-5 câu) bằng tiếng Việt.
+- Với mỗi thông tin, GHI RÕ nguồn: [Nguồn: tên_file].
+- Nếu không đủ thông tin, nói rõ.
+
+Lịch sử hội thoại:
+{chat_history or 'Không có'}
+
+Ngữ cảnh:
+{context}
+
+Câu hỏi hiện tại:
+{question}
+
+Trả lời (ghi rõ nguồn):"""
+
+    return f"""You are a multi-document RAG assistant.
+Use conversation history and context from MULTIPLE documents to answer.
+
+Rules:
+- Keep the answer concise (3-5 sentences).
+- CITE sources using [Source: filename] for each fact.
+- If context is insufficient, say so.
+
+Conversation history:
+{chat_history or 'None'}
+
+Context:
+{context}
+
+Current question:
+{question}
+
+Answer (cite sources):"""
+
+
 def format_chat_history(chat_history: list[dict[str, str]], max_turns: int = 4) -> str:
     if not chat_history:
         return ""

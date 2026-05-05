@@ -87,6 +87,32 @@ def test_load_docx_extracts_paragraphs_and_tables(monkeypatch: pytest.MonkeyPatc
     assert [doc.metadata["page"] for doc in loaded] == [1, 2, 3]
 
 
+def test_load_docx_preserves_original_block_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+
+    sample_docx = tmp_path / "ordered.docx"
+    doc = docx.Document()
+    doc.add_paragraph("Opening paragraph")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Row"
+    table.cell(0, 1).text = "One"
+    doc.add_paragraph("Closing paragraph")
+    doc.save(sample_docx)
+
+    loaded = pipeline._load_docx(sample_docx)
+
+    assert [item.page_content for item in loaded] == [
+        "Opening paragraph",
+        "Row | One",
+        "Closing paragraph",
+    ]
+    assert [item.metadata["docx_block_type"] for item in loaded] == [
+        "paragraph",
+        "table_row",
+        "paragraph",
+    ]
+
+
 def test_ingest_files_populates_required_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pipeline = make_pipeline(monkeypatch, tmp_path)
 
@@ -274,6 +300,27 @@ def test_rebuild_indices_falls_back_to_full_build_when_store_missing(
 
     assert from_documents_calls == [1]
     assert pipeline._retriever == {"ok": True}
+
+
+def test_apply_metadata_filters_supports_uploaded_at(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pipeline = make_pipeline(monkeypatch, tmp_path)
+    docs = [
+        Document(
+            page_content="older",
+            metadata={"source_name": "a.pdf", "doc_type": "pdf", "uploaded_at": "2026-05-05T10:00:00"},
+        ),
+        Document(
+            page_content="newer",
+            metadata={"source_name": "b.docx", "doc_type": "docx", "uploaded_at": "2026-05-05T11:00:00"},
+        ),
+    ]
+
+    filtered = pipeline._apply_metadata_filters(
+        docs,
+        {"source_name": [], "doc_type": [], "uploaded_at": ["2026-05-05T11:00:00"]},
+    )
+
+    assert [doc.page_content for doc in filtered] == ["newer"]
 
 
 def test_rerank_returns_only_reranked_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
