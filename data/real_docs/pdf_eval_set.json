@@ -1,0 +1,142 @@
+{
+  "table2_questions": [
+    {
+      "id": "Q1",
+      "question": "What is the main purpose of NIST SP 800-53 Rev.5?",
+      "references": [
+        "Provide a catalog of security and privacy controls for information systems and organizations.",
+        "A catalog of security and privacy controls for federal information systems and organizations."
+      ]
+    },
+    {
+      "id": "Q2",
+      "question": "Summarize key phases from NIST SP 800-61 incident handling.",
+      "references": [
+        "Preparation, detection and analysis, containment eradication and recovery, and post-incident activity.",
+        "Preparation; detection and analysis; containment, eradication, and recovery; post-incident activity."
+      ]
+    },
+    {
+      "id": "Q3",
+      "question": "What is enterprise patch management planning according to NIST SP 800-40 Rev.4?",
+      "references": [
+        "A risk based process to prioritize, test, deploy, and verify patches across enterprise assets.",
+        "Planning patching by risk, testing, deployment, and verification for enterprise systems."
+      ]
+    },
+    {
+      "id": "Q4",
+      "question": "How do incident response practices in 800-61 complement security controls in 800-53?",
+      "references": [
+        "Incident response operationalizes and validates security controls by detecting, containing, and recovering from incidents while feeding lessons learned into control improvement.",
+        "800-61 provides incident handling operations that support and improve the controls defined in 800-53."
+      ]
+    },
+    {
+      "id": "Q5",
+      "question": "How does patch management guidance in 800-40 support risk reduction goals in 800-53?",
+      "references": [
+        "Patch management reduces exploitable vulnerabilities and supports control effectiveness, which lowers organizational risk.",
+        "By prioritizing and deploying patches based on risk, 800-40 supports 800-53 risk reduction objectives."
+      ]
+    }
+  ],
+  "table3_questions": [
+    {
+      "id": "R1",
+      "question": "prioritization of remediation actions based on risk",
+      "references": [
+        "Prioritize remediation actions based on risk and impact to mission operations.",
+        "Risk based prioritization of remediation actions."
+      ]
+    },
+    {
+      "id": "R2",
+      "question": "What are the incident response phases?",
+      "references": [
+        "Preparation, detection and analysis, containment eradication and recovery, and post incident activity."
+      ]
+    },
+    {
+      "id": "R3",
+      "question": "What is the purpose of NIST SP 800-53 Rev.5?",
+      "references": [
+        "A catalog of security and privacy controls for information systems and organizations."
+      ]
+    },
+    {
+      "id": "R4",
+      "question": "How does patch management support risk reduction?",
+      "references": [
+        "Patch management reduces vulnerabilities and lowers risk by timely remediation."
+      ]
+    }
+  ],
+  "table4_dialogues": [
+    {
+      "id": "D1",
+      "history": [
+        {
+          "question": "List 3 important control families from 800-53.",
+          "answer": "Access Control, Incident Response, and Risk Assessment."
+        }
+      ],
+      "question": "Explain the second one in simpler terms and give one practical example.",
+      "references": [
+        "Incident Response means preparing for, detecting, containing, and recovering from security incidents; for example, isolating an infected endpoint during malware response.",
+        "The second family is Incident Response, such as isolating a compromised host and running containment and recovery playbooks."
+      ]
+    },
+    {
+      "id": "D2",
+      "history": [
+        {
+          "question": "Name core incident response phases from 800-61.",
+          "answer": "Preparation, detection and analysis, containment eradication and recovery, and post incident activity."
+        }
+      ],
+      "question": "Give one concrete action in the third phase.",
+      "references": [
+        "In containment, eradication, and recovery, a concrete action is isolating affected systems and removing malicious artifacts before restoring services.",
+        "Example: isolate the compromised host and eradicate malware before recovery."
+      ]
+    },
+    {
+      "id": "D3",
+      "history": [
+        {
+          "question": "What does 800-40 emphasize in patching?",
+          "answer": "Risk based prioritization, testing, deployment planning, and verification."
+        }
+      ],
+      "question": "Summarize that in one sentence for executives.",
+      "references": [
+        "Use a risk based patch program to prioritize and validate updates so critical vulnerabilities are reduced quickly with minimal operational disruption.",
+        "Prioritize and validate high risk patches first to reduce business risk quickly."
+      ]
+    }
+  ],
+  "table5_questions": [
+    {
+      "id": "M1",
+      "question": "How do incident response practices in 800-61 complement security controls in 800-53?",
+      "references": [
+        "Incident response provides operational procedures that implement and continuously improve 800-53 controls through detection, containment, recovery, and lessons learned."
+      ]
+    },
+    {
+      "id": "M2",
+      "question": "How does patch management guidance in 800-40 support risk reduction goals in 800-53?",
+      "references": [
+        "Risk based patch management reduces vulnerabilities and helps maintain control effectiveness, supporting organizational risk reduction goals."
+      ]
+    },
+    {
+      "id": "M3",
+      "question": "Explain how 800-40 and 800-61 together improve resilience under 800-53.",
+      "references": [
+        "800-40 reduces exposure by patching while 800-61 handles incidents when controls fail, and together they strengthen resilience for 800-53 control objectives."
+      ]
+    }
+  ]
+}

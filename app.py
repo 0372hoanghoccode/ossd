@@ -60,111 +60,87 @@ for key, default in _defaults.items():
 
 pipeline: RAGPipeline = st.session_state["pipeline"]
 
-# ── Header ──
-st.markdown(
-    "<div style='text-align:center;margin-bottom:0.5rem;'>"
-    "<h1 style='color:#2563EB;margin:0;font-size:1.6rem;'>📄 SmartDoc AI</h1>"
-    "<p style='color:#64748B;font-size:0.85rem;margin:0;'>Upload PDF/DOCX · Hỏi đáp thông minh · RAG & CoRAG</p>"
-    "</div>",
-    unsafe_allow_html=True,
-)
+# Add global CSS for compact layout
+st.markdown("""
+<style>
+/* Reduce top padding and move content up */
+.main .block-container, [data-testid="stAppViewBlockContainer"] {
+    padding-top: 0rem !important;
+    padding-bottom: 1rem !important;
+    margin-top: -3.5rem !important;
+}
 
-# ── Upload ──
-uploaded_files = st.file_uploader(
-    "📁 Upload tài liệu", type=["pdf", "docx"], accept_multiple_files=True
-)
+/* Hide Streamlit top header */
+[data-testid="stHeader"] {
+    display: none !important;
+}
 
-# ── Document Manager (persisted) ──
-indexed_docs = pipeline.list_indexed_documents()
-# ── Move filters here ──
-available_filters = pipeline.list_available_sources()
-if available_filters.get("source_name") or available_filters.get("doc_type"):
-    st.markdown("##### 🏷️ Lọc Tài Liệu")
-    fcol1, fcol2 = st.columns(2)
-    with fcol1:
-        st.session_state["filter_source_names"] = st.multiselect(
-            "Nguồn (Source)",
-            options=available_filters.get("source_name", []),
-            default=[i for i in st.session_state.get("filter_source_names", []) if i in available_filters.get("source_name", [])],
-            key="top_filter_sources"
-        )
-    with fcol2:
-        st.session_state["filter_doc_types"] = st.multiselect(
-            "Loại file (Type)",
-            options=available_filters.get("doc_type", []),
-            default=[i for i in st.session_state.get("filter_doc_types", []) if i in available_filters.get("doc_type", [])],
-            key="top_filter_types"
-        )
+/* Compact tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+}
 
-doc_count = len(indexed_docs)
-total_chunks = sum(d.get("Số chunks", 0) for d in indexed_docs)
-st.markdown(
-    f'<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:0.6rem 1rem;margin-bottom:0.5rem;margin-top:1rem;">'
-    f'<span style="font-weight:600;color:#2563EB;">📚 {doc_count} tài liệu đã index</span>'
-    f'<span style="color:#64748B;font-size:0.8rem;margin-left:1rem;">({total_chunks} chunks)</span>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+.stTabs [data-baseweb="tab"] {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+}
 
-if "active_docs" not in st.session_state:
-    # By default, use all documents
-    st.session_state["active_docs"] = {d.get("Tên file"): True for d in indexed_docs}
+/* Reduce spacing between elements */
+.element-container {
+    margin-bottom: 0.5rem !important;
+}
 
-# Display documents as table
-if indexed_docs:
-    # Create columns for table with actions
-    cols = st.columns([0.5, 3, 1, 1, 1.5, 1, 1])
-    
-    # Header row
-    cols[0].markdown("**Icon**")
-    cols[1].markdown("**Tên file**")
-    cols[2].markdown("**Loại**")
-    cols[3].markdown("**Chunks**")
-    cols[4].markdown("**Ngày upload**")
-    cols[5].markdown("**Sử dụng**")
-    cols[6].markdown("**Xóa**")
-    
-    st.divider()
-    
-    # Data rows
-    for i, doc_info in enumerate(indexed_docs):
-        fname = doc_info.get("Tên file", "?")
-        dtype = doc_info.get("Loại", "?")
-        chunks = doc_info.get("Số chunks", 0)
-        up_time = doc_info.get("Ngày upload", "?")
-        icon = "📕" if dtype == "PDF" else "📘" if dtype == "DOCX" else "📄"
-        
-        # Auto-select new docs
-        if fname not in st.session_state["active_docs"]:
-            st.session_state["active_docs"][fname] = True
-        
-        # Create row
-        row_cols = st.columns([0.5, 3, 1, 1, 1.5, 1, 1])
-        
-        row_cols[0].markdown(icon)
-        row_cols[1].markdown(f"{fname}")
-        row_cols[2].markdown(dtype)
-        row_cols[3].markdown(str(chunks))
-        row_cols[4].markdown(up_time)
-        
-        # Action: Use checkbox
-        is_active = row_cols[5].checkbox(
-            "✓",
-            value=st.session_state["active_docs"].get(fname, True),
-            key=f"use_doc_{i}",
-            label_visibility="collapsed"
-        )
-        st.session_state["active_docs"][fname] = is_active
-        
-        # Action: Delete button
-        if row_cols[6].button("🗑️", key=f"del_doc_{i}", help=f"Xóa {fname}"):
-            st.session_state["open_delete_doc_dialog"] = True
-            st.session_state["delete_doc_name"] = fname
-            st.session_state["delete_doc_index"] = i
-            st.rerun()
-        
-        if i < len(indexed_docs) - 1:
-            st.divider()
+/* Compact metrics */
+[data-testid="stMetricValue"] {
+    font-size: 1.2rem;
+}
+
+[data-testid="stMetricLabel"] {
+    font-size: 0.8rem;
+}
+
+/* Compact dividers */
+hr {
+    margin: 0.5rem 0 !important;
+}
+
+/* Compact markdown headers */
+h5 {
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    font-size: 1rem !important;
+}
+
+h4 {
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    font-size: 1.1rem !important;
+}
+
+/* Compact text inputs */
+.stTextInput, .stTextArea, .stSelectbox, .stMultiSelect {
+    margin-bottom: 0.5rem !important;
+}
+
+/* Compact columns */
+[data-testid="column"] {
+    padding: 0.2rem !important;
+}
+
+/* Compact buttons */
+.stButton > button {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.85rem;
+    min-height: 2rem;
+}
+
+/* Compact dataframes */
+.stDataFrame {
+    font-size: 0.85rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ── Sidebar ──
 render_sidebar(
@@ -251,40 +227,210 @@ def delete_doc_dialog() -> None:
             st.rerun()
 
 
+@st.dialog("Xác nhận xóa dòng thống kê")
+def delete_stat_dialog() -> None:
+    stat_index = st.session_state.get("delete_stat_index", -1)
+    st.write(f"Bạn có chắc muốn xóa dòng thống kê **#{stat_index}**?")
+    st.warning("⚠️ Hành động này không thể hoàn tác!")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Xác nhận xóa", type="primary", use_container_width=True, key="confirm_del_stat"):
+            from pathlib import Path
+            import json
+            
+            p = Path("data/run_history.json")
+            if p.exists():
+                try:
+                    history = json.loads(p.read_text(encoding="utf-8"))
+                    # Remove entry with matching #
+                    history = [h for h in history if h.get("#") != stat_index]
+                    # Renumber
+                    for idx, h in enumerate(history, start=1):
+                        h["#"] = idx
+                    p.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+                    st.success(f"✅ Đã xóa dòng #{stat_index}")
+                except Exception as e:
+                    st.error(f"❌ Lỗi: {e}")
+            
+            st.session_state["open_delete_stat_dialog"] = False
+            st.rerun()
+    with col2:
+        if st.button("❌ Hủy", use_container_width=True, key="cancel_del_stat"):
+            st.session_state["open_delete_stat_dialog"] = False
+            st.rerun()
+
+
 if st.session_state.get("open_clear_history_dialog"):
     clear_history_dialog()
 if st.session_state.get("open_clear_vector_dialog"):
     clear_vector_dialog()
-if st.session_state.get("open_clear_stats_dialog"):
-    clear_stats_dialog()
 if st.session_state.get("open_delete_doc_dialog"):
     delete_doc_dialog()
-
-# ── Process documents ──
-process_clicked = st.button("⚡ Process Document(s)", type="primary", disabled=not uploaded_files)
-if process_clicked and uploaded_files:
-    try:
-        with st.spinner("Đang xử lý tài liệu..."):
-            result = pipeline.ingest_files(
-                uploaded_files,
-                chunk_size=st.session_state["chunk_size"],
-                chunk_overlap=st.session_state["chunk_overlap"],
-            )
-        st.success(
-            f"✅ {result.files_indexed} file(s), {result.chunks} chunks trong {result.seconds:.2f}s "
-            f"(size={result.chunk_size}, overlap={result.chunk_overlap})"
-        )
-    except Exception as exc:
-        logger.exception("Document processing failed")
-        st.error(f"Lỗi xử lý tài liệu: {exc}")
+if st.session_state.get("open_delete_stat_dialog"):
+    delete_stat_dialog()
 
 # ════════════════════════════════════════════════════════
 # ── MAIN TABS ──
 # ════════════════════════════════════════════════════════
-st.divider()
-tab_rag, tab_compare, tab_stats, tab_bench = st.tabs(
-    ["🔍 RAG", "⚔️ RAG vs CoRAG", "📊 Thống kê", "📐 Benchmark"]
+tab_docs, tab_rag, tab_compare, tab_stats, tab_bench = st.tabs(
+    ["📚 Tài liệu", "🔍 RAG", "⚔️ RAG vs CoRAG", "📊 Thống kê", "📐 Benchmark"]
 )
+
+# ── TAB 0: Documents ──
+with tab_docs:
+    st.markdown("#### 📚 Quản lý Tài liệu")
+    
+    # Upload section
+    uploaded_files = st.file_uploader(
+        "Chọn file PDF hoặc DOCX",
+        type=["pdf", "docx"],
+        accept_multiple_files=True,
+        key="docs_uploader",
+        help="Kéo thả file vào đây hoặc click để chọn. Giới hạn 200MB/file"
+    )
+    
+    # Save to session state for other tabs to access
+    if uploaded_files:
+        st.session_state["uploaded_files"] = uploaded_files
+        st.success(f"✅ {len(uploaded_files)} file")
+    
+    # Process documents section
+    st.markdown("**⚡ Xử lý tài liệu**")
+    
+    pcol1, pcol2 = st.columns(2)
+    with pcol1:
+        process_chunk_size = st.selectbox(
+            "Chunk Size",
+            options=[500, 1000, 1500, 2000],
+            index=[500, 1000, 1500, 2000].index(st.session_state["chunk_size"])
+            if st.session_state["chunk_size"] in [500, 1000, 1500, 2000]
+            else 1,
+            key="process_chunk_size",
+        )
+    with pcol2:
+        process_chunk_overlap = st.selectbox(
+            "Chunk Overlap",
+            options=[50, 100, 200],
+            index=[50, 100, 200].index(st.session_state["chunk_overlap"])
+            if st.session_state["chunk_overlap"] in [50, 100, 200]
+            else 1,
+            key="process_chunk_overlap",
+        )
+    
+    process_clicked = st.button("⚡ Process Document(s)", type="primary", disabled=not uploaded_files)
+    if process_clicked and uploaded_files:
+        try:
+            with st.spinner("Đang xử lý tài liệu..."):
+                result = pipeline.ingest_files(
+                    uploaded_files,
+                    chunk_size=process_chunk_size,
+                    chunk_overlap=process_chunk_overlap,
+                )
+            st.success(
+                f"✅ {result.files_indexed} file(s), {result.chunks} chunks trong {result.seconds:.2f}s "
+                f"(size={result.chunk_size}, overlap={result.chunk_overlap})"
+            )
+            st.rerun()
+        except Exception as exc:
+            logger.exception("Document processing failed")
+            st.error(f"Lỗi: {exc}")
+    
+    # Document Manager
+    st.markdown("**📋 Tài liệu đã index**")
+    
+    indexed_docs = pipeline.list_indexed_documents()
+    available_filters = pipeline.list_available_sources()
+    
+    # Filters
+    if available_filters.get("source_name") or available_filters.get("doc_type"):
+        fcol1, fcol2 = st.columns(2)
+        with fcol1:
+            st.session_state["filter_source_names"] = st.multiselect(
+                "Nguồn (Source)",
+                options=available_filters.get("source_name", []),
+                default=[i for i in st.session_state.get("filter_source_names", []) if i in available_filters.get("source_name", [])],
+                key="docs_filter_sources"
+            )
+        with fcol2:
+            st.session_state["filter_doc_types"] = st.multiselect(
+                "Loại file (Type)",
+                options=available_filters.get("doc_type", []),
+                default=[i for i in st.session_state.get("filter_doc_types", []) if i in available_filters.get("doc_type", [])],
+                key="docs_filter_types"
+            )
+    
+    doc_count = len(indexed_docs)
+    total_chunks = sum(d.get("Số chunks", 0) for d in indexed_docs)
+    st.markdown(
+        f'<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:0.6rem 1rem;margin-bottom:0.5rem;margin-top:1rem;">'
+        f'<span style="font-weight:600;color:#2563EB;">📚 {doc_count} tài liệu đã index</span>'
+        f'<span style="color:#64748B;font-size:0.8rem;margin-left:1rem;">({total_chunks} chunks)</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    
+    if "active_docs" not in st.session_state:
+        # By default, use all documents
+        st.session_state["active_docs"] = {d.get("Tên file"): True for d in indexed_docs}
+    
+    # Display documents as table
+    if indexed_docs:
+        # Create columns for table with actions
+        cols = st.columns([0.5, 3, 1, 1, 1.5, 1, 1])
+        
+        # Header row
+        cols[0].markdown("**Icon**")
+        cols[1].markdown("**Tên file**")
+        cols[2].markdown("**Loại**")
+        cols[3].markdown("**Chunks**")
+        cols[4].markdown("**Ngày upload**")
+        cols[5].markdown("**Sử dụng**")
+        cols[6].markdown("**Xóa**")
+        
+        st.divider()
+        
+        # Data rows
+        for i, doc_info in enumerate(indexed_docs):
+            fname = doc_info.get("Tên file", "?")
+            dtype = doc_info.get("Loại", "?")
+            chunks = doc_info.get("Số chunks", 0)
+            up_time = doc_info.get("Ngày upload", "?")
+            icon = "📕" if dtype == "PDF" else "📘" if dtype == "DOCX" else "📄"
+            
+            # Auto-select new docs
+            if fname not in st.session_state["active_docs"]:
+                st.session_state["active_docs"][fname] = True
+            
+            # Create row
+            row_cols = st.columns([0.5, 3, 1, 1, 1.5, 1, 1])
+            
+            row_cols[0].markdown(icon)
+            row_cols[1].markdown(f"{fname}")
+            row_cols[2].markdown(dtype)
+            row_cols[3].markdown(str(chunks))
+            row_cols[4].markdown(up_time)
+            
+            # Action: Use checkbox
+            is_active = row_cols[5].checkbox(
+                "✓",
+                value=st.session_state["active_docs"].get(fname, True),
+                key=f"docs_use_{i}",
+                label_visibility="collapsed"
+            )
+            st.session_state["active_docs"][fname] = is_active
+            
+            # Action: Delete button
+            if row_cols[6].button("🗑️", key=f"docs_del_{i}", help=f"Xóa {fname}"):
+                st.session_state["open_delete_doc_dialog"] = True
+                st.session_state["delete_doc_name"] = fname
+                st.session_state["delete_doc_index"] = i
+                st.rerun()
+            
+            if i < len(indexed_docs) - 1:
+                st.divider()
+    else:
+        st.info("📭 Chưa có tài liệu nào được index. Upload và process tài liệu ở trên.")
 
 # ── TAB 1: RAG ──
 with tab_rag:
@@ -402,52 +548,7 @@ with tab_rag:
                 "_full_answer": answer_result.answer,
             })
 
-            # CoRAG comparison
-            if st.session_state.get("enable_corag_compare"):
-                with st.status("⚡ CoRAG đang suy luận...", expanded=True) as corag_status:
-                    corag_steps_placeholder = st.empty()
-                    live_steps: list[CoRAGStep] = []
 
-                    def on_step(step: CoRAGStep) -> None:
-                        live_steps.append(step)
-                        with corag_steps_placeholder.container():
-                            for item in live_steps:
-                                st.caption(
-                                    f"Step {item.step}: '{item.query[:50]}...' "
-                                    f"-> {item.retrieved_count} docs, sufficient={item.sufficient}"
-                                )
-
-                    corag_t0 = time.perf_counter()
-                    corag_result = pipeline.answer_corag(
-                        question=question.strip(),
-                        max_steps=st.session_state.get("corag_max_steps", 4),
-                        retrieval_mode=st.session_state["retrieval_mode"],
-                        metadata_filters=metadata_filters,
-                        enable_rerank=st.session_state["enable_rerank"],
-                        step_callback=on_step,
-                    )
-                    st.session_state["corag_time"] = time.perf_counter() - corag_t0
-                    st.session_state["corag_result"] = corag_result
-                    st.session_state["corag_result_raw"] = pipeline._last_corag_result
-                    corag_status.update(label="✅ CoRAG hoàn thành!", state="complete")
-
-                    # Save CoRAG to statistics too
-                    save_run_to_history({
-                        "Câu hỏi": question.strip(),
-                        "Mode": corag_result.mode,
-                        "Conversational": "❌",
-                        "Rerank": "✅" if st.session_state["enable_rerank"] else "❌",
-                        "Self-RAG": "❌",
-                        "Confidence": f"{corag_result.confidence:.0%}",
-                        "Retrieval (ms)": f"{corag_result.retrieval_seconds * 1000:,.0f}",
-                        "Generation (ms)": "—",
-                        "Tổng (ms)": f"{st.session_state['corag_time'] * 1000:,.0f}",
-                        "Nguồn": "CoRAG multi-step",
-                        "Số nguồn": len(corag_result.sources),
-                        "Query dùng": question.strip(),
-                        "_full_question": question.strip(),
-                        "_full_answer": corag_result.answer,
-                    })
 
         except Exception as exc:
             logger.exception("Question answering failed")
@@ -469,15 +570,95 @@ with tab_rag:
 
 # ── TAB 2: RAG vs CoRAG ──
 with tab_compare:
-    if st.session_state.get("enable_corag_compare") and st.session_state.get("corag_result"):
-        st.markdown("#### ⚔️ So sánh RAG vs CoRAG")
+    st.markdown("#### ⚔️ So sánh RAG vs CoRAG")
+    
+    compare_question = st.text_input("Nhập câu hỏi để so sánh RAG và CoRAG", key="compare_question")
+    compare_clicked = st.button("🚀 Chạy So Sánh", disabled=not pipeline.is_ready or not compare_question.strip(), key="compare_btn")
+    
+    if compare_clicked:
+        try:
+            st.session_state["compare_rag_result"] = None
+            st.session_state["compare_corag_result"] = None
+            
+            # Combine top filters + document manager active state
+            active_docs_from_manager = [fname for fname, is_active in st.session_state.get("active_docs", {}).items() if is_active]
+            selected_sources_from_filter = st.session_state.get("filter_source_names", [])
+            
+            if selected_sources_from_filter:
+                final_sources = [s for s in active_docs_from_manager if s in selected_sources_from_filter]
+            else:
+                final_sources = active_docs_from_manager
+
+            metadata_filters = {
+                "source_name": final_sources,
+                "doc_type": st.session_state.get("filter_doc_types", []),
+            }
+
+            col_run_rag, col_run_corag = st.columns(2)
+            
+            # Run RAG
+            with col_run_rag:
+                rag_t0 = time.perf_counter()
+                with st.status("🔍 RAG đang xử lý...", expanded=True) as rag_status:
+                    rag_result = pipeline.answer(
+                        compare_question.strip(),
+                        chat_history=[],
+                        retrieval_mode=st.session_state.get("retrieval_mode", "vector"),
+                        metadata_filters=metadata_filters,
+                        enable_rerank=st.session_state.get("enable_rerank", False),
+                        enable_self_rag=st.session_state.get("enable_self_rag", False),
+                        conversational=False,
+                    )
+                    rag_time = time.perf_counter() - rag_t0
+                    rag_status.update(label=f"✅ RAG hoàn thành ({rag_time:.2f}s)!", state="complete")
+                    st.session_state["compare_rag_result"] = rag_result
+                    st.session_state["compare_rag_time"] = rag_time
+
+            # Run CoRAG
+            with col_run_corag:
+                corag_t0 = time.perf_counter()
+                with st.status("⚡ CoRAG đang suy luận...", expanded=True) as corag_status:
+                    corag_steps_placeholder = st.empty()
+                    live_steps: list[CoRAGStep] = []
+
+                    def on_step(step: CoRAGStep) -> None:
+                        live_steps.append(step)
+                        with corag_steps_placeholder.container():
+                            for item in live_steps:
+                                st.caption(
+                                    f"Step {item.step}: '{item.query[:50]}...' "
+                                    f"-> {item.retrieved_count} docs, sufficient={item.sufficient}"
+                                )
+
+                    corag_result = pipeline.answer_corag(
+                        question=compare_question.strip(),
+                        max_steps=st.session_state.get("corag_max_steps", 4),
+                        retrieval_mode=st.session_state.get("retrieval_mode", "vector"),
+                        metadata_filters=metadata_filters,
+                        enable_rerank=st.session_state.get("enable_rerank", False),
+                        step_callback=on_step,
+                    )
+                    corag_time = time.perf_counter() - corag_t0
+                    st.session_state["compare_corag_time"] = corag_time
+                    st.session_state["compare_corag_result"] = corag_result
+                    st.session_state["compare_corag_result_raw"] = pipeline._last_corag_result
+                    corag_status.update(label=f"✅ CoRAG hoàn thành ({corag_time:.2f}s)!", state="complete")
+        except Exception as exc:
+            logger.exception("Comparison failed")
+            st.error(f"❌ Lỗi khi so sánh: {exc}")
+
+    # Display comparison if available
+    if st.session_state.get("compare_rag_result") and st.session_state.get("compare_corag_result"):
+        rag_res = st.session_state["compare_rag_result"]
+        corag_res = st.session_state["compare_corag_result"]
+        raw_res = st.session_state.get("compare_corag_result_raw")
 
         col_rag, col_corag = st.columns(2)
         with col_rag:
             st.markdown(
                 '<div class="card" style="border-left:3px solid #2563EB;">'
-                '<div class="card-header">🔍 RAG</div>'
-                f'<div class="card-body">{st.session_state["last_answer"]}</div>'
+                f'<div class="card-header">🔍 RAG ({st.session_state.get("compare_rag_time", 0):.2f}s)</div>'
+                f'<div class="card-body">{rag_res.answer}</div>'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -485,27 +666,26 @@ with tab_compare:
         with col_corag:
             st.markdown(
                 '<div class="card" style="border-left:3px solid #10B981;">'
-                '<div class="card-header">⚡ CoRAG</div>'
-                f'<div class="card-body">{st.session_state["corag_result"].answer}</div>'
+                f'<div class="card-header">⚡ CoRAG ({st.session_state.get("compare_corag_time", 0):.2f}s)</div>'
+                f'<div class="card-body">{corag_res.answer}</div>'
                 '</div>',
                 unsafe_allow_html=True,
             )
 
-        raw_result = st.session_state.get("corag_result_raw")
-        if isinstance(raw_result, CoRAGResult):
-            m1, m2, m3 = st.columns(3)
-            m1.metric("🔢 Steps", f"RAG: 1 / CoRAG: {raw_result.steps}")
-            m2.metric(
-                "📄 Docs",
-                f"RAG: {len(st.session_state['last_sources'])} / CoRAG: {raw_result.total_docs}",
-            )
-            m3.metric(
-                "🎯 Confidence",
-                f"RAG: {st.session_state['last_confidence']:.2f} / CoRAG: {st.session_state['corag_result'].confidence:.2f}",
-            )
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🔢 Steps", f"RAG: 1 / CoRAG: {raw_res.steps if isinstance(raw_res, CoRAGResult) else 'N/A'}")
+        m2.metric(
+            "📄 Docs",
+            f"RAG: {len(rag_res.sources)} / CoRAG: {raw_res.total_docs if isinstance(raw_res, CoRAGResult) else len(corag_res.sources)}",
+        )
+        m3.metric(
+            "🎯 Confidence",
+            f"RAG: {rag_res.confidence:.2f} / CoRAG: {corag_res.confidence:.2f}",
+        )
 
+        if isinstance(raw_res, CoRAGResult):
             st.markdown("#### 🔗 CoRAG Chain Trace")
-            for step in raw_result.chain:
+            for step in raw_res.chain:
                 label = f"Step {step.step}: {step.query[:60]}{'...' if len(step.query) > 60 else ''}"
                 with st.expander(label, expanded=False):
                     st.write(f"📥 Retrieved: {step.retrieved_count} new docs")
@@ -517,10 +697,6 @@ with tab_compare:
                     if step.next_query:
                         st.write(f"➡️ Next: {step.next_query}")
                     st.caption(f"💭 {step.reasoning}")
-    else:
-        st.info(
-            "💡 Bật **So sánh RAG vs CoRAG** ở sidebar và chạy câu hỏi trong tab RAG để xem so sánh."
-        )
 
 
 # ── TAB 3: Statistics ──
@@ -533,6 +709,7 @@ with tab_bench:
     render_benchmark_tab()
 
     # Handle benchmark execution with progressive display
+    uploaded_files = st.session_state.get("uploaded_files", [])
     if st.session_state.get("bm_should_run") and uploaded_files:
         st.session_state["bm_should_run"] = False
         configs = st.session_state.get("bm_configs", [])

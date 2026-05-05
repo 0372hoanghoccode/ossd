@@ -87,7 +87,8 @@ html, body, [data-testid="stAppViewContainer"] {
     color: var(--text-main) !important;
 }
 [data-testid="stApp"] { background: var(--bg-page) !important; }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+header { display: none !important; }
 
 /* ── Sidebar ── */
 section[data-testid="stSidebar"] {
@@ -646,40 +647,49 @@ def list_benchmark_sessions() -> list[dict]:
 
 def render_statistics_tab() -> None:
     """Render the statistics tab with filters and run history."""
-    st.markdown("#### 📊 Thống kê các lần chạy")
 
     history = load_run_history()
     if not history:
-        st.info("📭 Chưa có dữ liệu thống kê. Hãy chạy RAG hoặc CoRAG để bắt đầu ghi nhận.")
+        st.info("📭 Chưa có dữ liệu")
         return
 
+    # Reference answer input at the top
+   
+    eval_ref_answer = st.text_area(
+        "Đáp án tham chiếu",
+        key="stats_eval_ref_answer",
+        placeholder="Nhập đáp án để tính EM, CEM, F1...",
+        height=70
+    )
+
     # ── Filters ──
-    st.markdown("##### 🔎 Bộ lọc")
+    st.markdown("**🔎 Bộ lọc**")
 
-    # Question text filter
-    q_filter = st.text_input("🔤 Lọc theo câu hỏi", key="stat_filter_question", placeholder="Nhập từ khóa...")
-
-    fc1, fc2, fc3, fc4 = st.columns(4)
-
+    # Get all unique values for filters
+    all_questions = sorted({str(h.get("Câu hỏi", "?")) for h in history})
     all_modes = sorted({h.get("Mode", "?") for h in history})
     all_conv = sorted({h.get("Conversational", "?") for h in history})
     all_rerank = sorted({h.get("Rerank", "?") for h in history})
     all_selfrag = sorted({h.get("Self-RAG", "?") for h in history})
 
+    # All filters in one row
+    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+
     with fc1:
-        sel_modes = st.multiselect("Mode", options=all_modes, default=[], key="stat_filter_mode")
+        sel_questions = st.multiselect("Câu hỏi", options=all_questions, default=[], key="stat_filter_question")
     with fc2:
-        sel_conv = st.multiselect("Conversational", options=all_conv, default=[], key="stat_filter_conv")
+        sel_modes = st.multiselect("Mode", options=all_modes, default=[], key="stat_filter_mode")
     with fc3:
-        sel_rerank = st.multiselect("Rerank", options=all_rerank, default=[], key="stat_filter_rerank")
+        sel_conv = st.multiselect("Conv", options=all_conv, default=[], key="stat_filter_conv")
     with fc4:
+        sel_rerank = st.multiselect("Rerank", options=all_rerank, default=[], key="stat_filter_rerank")
+    with fc5:
         sel_selfrag = st.multiselect("Self-RAG", options=all_selfrag, default=[], key="stat_filter_selfrag")
 
     # Apply filters
     filtered = history
-    if q_filter.strip():
-        q_lower = q_filter.strip().lower()
-        filtered = [h for h in filtered if q_lower in str(h.get("Câu hỏi", "")).lower()]
+    if sel_questions:
+        filtered = [h for h in filtered if str(h.get("Câu hỏi", "?")) in sel_questions]
     if sel_modes:
         filtered = [h for h in filtered if h.get("Mode") in sel_modes]
     if sel_conv:
@@ -689,10 +699,28 @@ def render_statistics_tab() -> None:
     if sel_selfrag:
         filtered = [h for h in filtered if h.get("Self-RAG") in sel_selfrag]
 
+    # Calculate metrics if reference answer provided
+    has_ref_answer = eval_ref_answer.strip() != ""
+    if has_ref_answer:
+        for h in filtered:
+            answer = h.get("_full_answer", "")
+            if answer:
+                h["_em"] = calculate_em(answer, eval_ref_answer)
+                h["_cem"] = calculate_cem(answer, eval_ref_answer)
+                h["_f1"] = calculate_f1(answer, eval_ref_answer)
+            else:
+                h["_em"] = 0.0
+                h["_cem"] = 0.0
+                h["_f1"] = 0.0
+
     # Summary metrics
     total_runs = len(filtered)
     avg_gen = 0
     modes_count: dict[str, int] = {}
+    avg_em = 0.0
+    avg_cem = 0.0
+    avg_f1 = 0.0
+    
     for h in filtered:
         try:
             gen_val = str(h.get("Generation (ms)", "0")).replace(",", "").replace("—", "0")
@@ -701,51 +729,125 @@ def render_statistics_tab() -> None:
             pass
         mode = h.get("Mode", "?")
         modes_count[mode] = modes_count.get(mode, 0) + 1
+        
+        if has_ref_answer:
+            avg_em += h.get("_em", 0.0)
+            avg_cem += h.get("_cem", 0.0)
+            avg_f1 += h.get("_f1", 0.0)
 
     avg_gen = avg_gen // max(total_runs, 1)
     top_mode = max(modes_count, key=modes_count.get) if modes_count else "?"
+    
+    if has_ref_answer and total_runs > 0:
+        avg_em = avg_em / total_runs
+        avg_cem = avg_cem / total_runs
+        avg_f1 = avg_f1 / total_runs
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("🔢 Kết quả", f"{total_runs}/{len(history)}")
     c2.metric("⚡ Avg Gen", f"{avg_gen:,} ms")
     c3.metric("🏆 Top Mode", top_mode)
-    c4.metric("📄 Tổng gốc", len(history))
+    if has_ref_answer:
+        c4.metric("🎯 Avg F1", f"{avg_f1:.2f}")
+    else:
+        c4.metric("📄 Tổng gốc", len(history))
 
-    # Show filtered table
-    display_history = []
-    for h in filtered:
-        row = {k: v for k, v in h.items() if not k.startswith("_")}
-        display_history.append(row)
-
-    st.dataframe(display_history, use_container_width=True, hide_index=True)
-
-    # Expandable details
-    with st.expander("🔍 Chi tiết từng lần chạy", expanded=False):
-        for h in reversed(filtered[-10:]):
-            q = h.get("Câu hỏi", "?")
-            ans = h.get("_full_answer", "")[:200]
-            confidence = h.get("Confidence", "?")
-            st.markdown(
-                f'<div class="card" style="border-left:3px solid #2563EB;">'
-                f'<div class="card-header">#{h.get("#", "?")} | {html.escape(str(q)[:80])}</div>'
-                f'<div class="card-body">'
-                f'<b>Confidence:</b> {confidence} | <b>Mode:</b> {h.get("Mode", "?")}<br>'
-                f'{html.escape(ans)}{"..." if len(ans) >= 200 else ""}'
-                f'</div></div>',
-                unsafe_allow_html=True,
-            )
-
-    if st.button("🗑️ Xóa toàn bộ thống kê", key="clear_stats"):
-        st.session_state["open_clear_stats_dialog"] = True
+    # Show filtered table with action buttons
+    st.markdown("**📋 Kết quả**")
+    
+    # Add custom CSS for compact rows
+    st.markdown("""
+    <style>
+    div[data-testid="column"] > div {
+        font-size: 0.85rem;
+        padding: 0.2rem 0;
+    }
+    .stButton > button {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
+        min-height: 1.8rem;
+        height: 1.8rem;
+        line-height: 1;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if filtered:
+        # Create table header
+        cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.6, 0.7, 0.7, 0.7, 0.8, 0.5, 0.5, 0.5, 0.5, 0.5])
+        cols[0].markdown("**#**")
+        cols[1].markdown("**Câu hỏi**")
+        cols[2].markdown("**Mode**")
+        cols[3].markdown("**Conv**")
+        cols[4].markdown("**Rerank**")
+        cols[5].markdown("**Self**")
+        cols[6].markdown("**Conf**")
+        cols[7].markdown("**Retr**")
+        cols[8].markdown("**Gen**")
+        cols[9].markdown("**EM**")
+        cols[10].markdown("**CEM**")
+        cols[11].markdown("**F1**")
+        cols[12].markdown("**🔍**")
+        cols[13].markdown("**🗑️**")
+        
+        st.divider()
+        
+        # Data rows
+        for i, h in enumerate(filtered):
+            row_cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.6, 0.7, 0.7, 0.7, 0.8, 0.5, 0.5, 0.5, 0.5, 0.5])
+            
+            row_cols[0].markdown(f"<small>{h.get('#', '?')}</small>", unsafe_allow_html=True)
+            row_cols[1].markdown(f"<small>{str(h.get('Câu hỏi', '?'))[:35]}...</small>", unsafe_allow_html=True)
+            row_cols[2].markdown(f"<small>{h.get('Mode', '?')}</small>", unsafe_allow_html=True)
+            row_cols[3].markdown(f"<small>{h.get('Conversational', '?')}</small>", unsafe_allow_html=True)
+            row_cols[4].markdown(f"<small>{h.get('Rerank', '?')}</small>", unsafe_allow_html=True)
+            row_cols[5].markdown(f"<small>{h.get('Self-RAG', '?')}</small>", unsafe_allow_html=True)
+            row_cols[6].markdown(f"<small>{h.get('Confidence', '?')}</small>", unsafe_allow_html=True)
+            row_cols[7].markdown(f"<small>{str(h.get('Retrieval (ms)', '?'))}</small>", unsafe_allow_html=True)
+            row_cols[8].markdown(f"<small>{str(h.get('Generation (ms)', '?'))}</small>", unsafe_allow_html=True)
+            
+            # Metrics columns
+            if has_ref_answer:
+                row_cols[9].markdown(f"<small>{h.get('_em', 0.0):.2f}</small>", unsafe_allow_html=True)
+                row_cols[10].markdown(f"<small>{h.get('_cem', 0.0):.2f}</small>", unsafe_allow_html=True)
+                row_cols[11].markdown(f"<small>{h.get('_f1', 0.0):.2f}</small>", unsafe_allow_html=True)
+            else:
+                row_cols[9].markdown("<small>0.00</small>", unsafe_allow_html=True)
+                row_cols[10].markdown("<small>0.00</small>", unsafe_allow_html=True)
+                row_cols[11].markdown("<small>0.00</small>", unsafe_allow_html=True)
+            
+            # Detail button
+            if row_cols[12].button("🔍", key=f"detail_stat_{i}", help="Chi tiết"):
+                st.session_state[f"show_detail_{i}"] = not st.session_state.get(f"show_detail_{i}", False)
+            
+            # Delete button
+            if row_cols[13].button("🗑️", key=f"del_stat_{i}", help="Xóa"):
+                st.session_state["open_delete_stat_dialog"] = True
+                st.session_state["delete_stat_index"] = h.get("#", -1)
+                st.rerun()
+            # Show detail if toggled
+            if st.session_state.get(f"show_detail_{i}", False):
+                st.markdown(
+                    f'<div style="background:#EFF6FF;border-left:3px solid #2563EB;padding:0.8rem;margin:0.5rem 0;border-radius:4px;">'
+                    f'<b>📝 Câu hỏi đầy đủ:</b><br>{html.escape(str(h.get("_full_question", h.get("Câu hỏi", "?"))))}<br><br>'
+                    f'<b>💬 Câu trả lời:</b><br>{html.escape(str(h.get("_full_answer", "N/A"))[:500])}{"..." if len(str(h.get("_full_answer", ""))) > 500 else ""}<br><br>'
+                    f'<b>🎯 Confidence:</b> {h.get("Confidence", "?")} | '
+                    f'<b>📄 Số nguồn:</b> {h.get("Số nguồn", "?")} | '
+                    f'<b>🔎 Query:</b> {html.escape(str(h.get("Query dùng", "?")))}<br>'
+                    f'<b>📚 Nguồn:</b> {html.escape(str(h.get("Nguồn", "?")))}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+            
+            if i < len(filtered) - 1:
+                st.divider()
+    else:
+        st.info("📭 Không có kết quả phù hợp với bộ lọc")
 
 
 def render_benchmark_tab() -> None:
     """Render the benchmark tab — run chunk experiments with progressive display."""
-    st.markdown("#### 📐 Chunk Benchmark")
-    st.caption("Chạy benchmark theo từng cấu hình chunk. Mỗi loop xong hiện kết quả ngay và lưu vào file.")
 
-    # Config
-    st.markdown("##### ⚙️ Cấu hình")
     bc1, bc2 = st.columns(2)
     with bc1:
         bm_sizes = st.multiselect(

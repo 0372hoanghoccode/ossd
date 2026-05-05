@@ -1,0 +1,86 @@
+{
+  "table2_questions": [
+    {
+      "id": "V1",
+      "question": "Trong phần Linux, các lệnh dùng cho việc duyệt tìm và lọc là gì?",
+      "references": [
+        "Các lệnh duyệt tìm và lọc được liệt kê là find, grep, egrep, xargs và wc.",
+        "Phần Linux nêu các lệnh duyệt tìm và lọc gồm find, grep, egrep, xargs, wc."
+      ],
+      "hypothesis": "Small chunk (500, overlap 50-100)",
+      "rationale": "Cau hoi tra cuu cuc ky cu the, dap an nam trong mot dong bullet ngan, nen chunk nho thuong giu mat do tu khoa cao hon."
+    },
+    {
+      "id": "V2",
+      "question": "Theo tài liệu, giấy phép Apache 2.0 và MIT khác nhau chủ yếu ở điểm nào?",
+      "references": [
+        "Apache 2.0 và MIT đều là giấy phép permissive, nhưng Apache 2.0 có điều khoản bằng sáng chế còn MIT thì không.",
+        "Điểm khác chính là Apache 2.0 có điều khoản bằng sáng chế, còn MIT không có."
+      ],
+      "hypothesis": "Medium chunk sweet spot (1000, overlap 100-200)",
+      "rationale": "Cau hoi so sanh ngan nhung can giu du ngu canh cua nhom bullet ve license, khong nen qua nho de tranh mat van canh va khong nen qua lon de tranh loang tu khoa."
+    },
+    {
+      "id": "V3",
+      "question": "Phần AWS trong tài liệu bao phủ những nhóm dịch vụ, khái niệm và thao tác CLI chính nào?",
+      "references": [
+        "Phần AWS bao phủ EC2, Security Group, S3, IAM, VPC, RDS, Lambda, API Gateway, mô hình trách nhiệm chia sẻ, cùng các lệnh CLI như aws configure, describe-instances, stop-instances, describe-security-groups, mb, cp, sync và ls.",
+        "Nội dung AWS gồm EC2, Security Group, S3, IAM, VPC, RDS, Lambda, API Gateway, shared responsibility và các lệnh CLI như aws configure, describe-instances, stop-instances, describe-security-groups, mb, cp, sync, ls."
+      ],
+      "hypothesis": "Large chunk (1500-2000, overlap 100-200)",
+      "rationale": "Cau hoi tong hop rong trong cung mot section, can nhieu bullet lien tiep va mot tap thong tin dai, nen chunk lon thuong co loi the hon trong viec giu cau truc section."
+    }
+  ],
+  "medium_1000_questions": [
+    {
+      "id": "M100_1",
+      "question": "Ở phần đầu tài liệu, điểm khác nhau chính giữa Apache 2.0 và MIT là gì, và phần Linux ngay sau đó liệt kê những nhóm lệnh cơ bản nào cần nắm?",
+      "references": [
+        "Apache 2.0 và MIT đều là license permissive, nhưng Apache 2.0 có điều khoản bằng sáng chế còn MIT thì không; ngay sau đó phần Linux liệt kê các nhóm lệnh về duyệt tìm và lọc, văn bản và sắp xếp, tiến trình, hệ thống file, nén và dung lượng, lập lịch, và dịch vụ.",
+        "Khác biệt chính là Apache 2.0 có điều khoản bằng sáng chế còn MIT không có; phần Linux kế tiếp nêu các nhóm lệnh find/grep/xargs/wc, sort/uniq/cut/awk/sed, ps/top/kill, ln/chmod/chown, tar/du/df, crontab và systemctl/journalctl/tail."
+      ],
+      "hypothesis": "1000/100 should outperform smaller chunks",
+      "rationale": "Cau hoi nay can gom thong tin o cuoi phan license va dau phan Linux. Voi 500, hai y nay bi tach thanh hai chunk lien tiep; voi 1000, chung nam trong cung mot chunk nen ngu canh lien mach hon."
+    },
+    {
+      "id": "M100_2",
+      "question": "Trước khi sang phần AWS, tài liệu nêu những việc gì để kiểm tra vận hành dịch vụ trên Linux, và ngay sau đó phần AWS liệt kê các dịch vụ hay khái niệm nền tảng nào?",
+      "references": [
+        "Phần Linux nêu các việc như kiểm tra nginx hay service khác, xem error.log, lọc mã lỗi, khởi động lại dịch vụ, theo dõi top/htop df -h ss hay netstat; ngay sau đó phần AWS liệt kê EC2, Security Group, S3, IAM, VPC, RDS, Lambda, API Gateway và mô hình trách nhiệm chia sẻ.",
+        "Trước khi sang AWS, tài liệu nói đến kiểm tra nginx, log lỗi, restart dịch vụ và giám sát bằng top/htop df -h ss hoặc netstat; phần AWS kế tiếp liệt kê EC2, Security Group, S3, IAM, VPC, RDS, Lambda, API Gateway và shared responsibility."
+      ],
+      "hypothesis": "1000/100 should outperform smaller chunks",
+      "rationale": "Cau hoi nay cat ngang ranh gioi giua cuoi phan Linux van hanh va dau phan AWS. Chunk 500 de mat mot nua boi can hop nhat hai chunk 4 va 5, con 1000 bao tron cum noi dung nay."
+    },
+    {
+      "id": "M100_3",
+      "question": "Trong phần Socket, tài liệu vừa nêu các primitive cơ bản nào, vừa yêu cầu hoàn thiện chương trình chat ở những điểm nào?",
+      "references": [
+        "Phần Socket nêu các primitive như socket, bind, listen, accept, connect, send, sendall, recv, recvfrom, AF_INET, SOCK_STREAM, SOCK_DGRAM và SO_REUSEADDR; đồng thời yêu cầu hoàn thiện chương trình ở các điểm broadcast, receive_messages, tin nhắn riêng, đăng ký tên client, đóng socket an toàn và nhận dữ liệu theo luồng qua nhiều lần recv.",
+        "Các primitive cơ bản gồm socket(), bind, listen, accept, connect, send/sendall, recv/recvfrom, AF_INET, SOCK_STREAM, SOCK_DGRAM, SO_REUSEADDR; phần hoàn thiện chương trình gồm broadcast, receive_messages, tin nhắn riêng, đăng ký tên client, đóng socket an toàn và nhận dữ liệu theo luồng."
+      ],
+      "hypothesis": "1000/100 should outperform smaller chunks",
+      "rationale": "Noi dung primitive va yeu cau hoan thien nam trong cung mot chunk 1000, nhung bi tach thanh hai chunk 500 (chunk 6 va 7). Cau hoi can tong hop ca hai nua nen co xu huong hop voi chunk 1000."
+    },
+    {
+      "id": "M100_4",
+      "question": "Ở phần đồng bộ và bất đồng bộ, tài liệu liệt kê những khái niệm hoặc primitive chính nào cho threading và những khái niệm hoặc primitive chính nào cho asyncio?",
+      "references": [
+        "Với threading, tài liệu liệt kê race condition, interleaving, danh sách dùng chung giữa luồng, lock acquire release with lock, deadlock, bốn điều kiện Coffman, semaphore, event, queue.Queue và ThreadPoolExecutor; với asyncio, tài liệu nêu event loop, coroutine, async await, create_task, gather, wait_for, hủy tác vụ, open_connection, start_server, StreamReader và StreamWriter.",
+        "Threading gồm race condition, interleaving, lock, deadlock, Coffman, semaphore, event, queue.Queue, ThreadPoolExecutor; asyncio gồm event loop, coroutine, async/await, create_task, gather, wait_for, cancel task, open_connection, start_server, StreamReader, StreamWriter."
+      ],
+      "hypothesis": "1000/100 should outperform smaller chunks",
+      "rationale": "Phan threading va asyncio nam lien nhau trong mot chunk 1000 duy nhat, nhung bi chia lam hai chunk 500. Cau hoi doi hoi tong hop day du ca hai nhom khai niem nen 1000/100 co co hoi tot hon."
+    },
+    {
+      "id": "M100_5",
+      "question": "Theo tài liệu, khi nào nên chọn mô hình nhiều luồng, khi nào nên chọn asyncio, và khi nào cần chạy mã chặn trong executor?",
+      "references": [
+        "Tài liệu gợi ý chọn mô hình nhiều luồng khi xử lý nhiều kết nối I O theo kiểu thread, chọn asyncio khi một tiến trình cần nhiều coroutine trên event loop, và dùng to_thread hay run_in_executor khi phải gọi thư viện đồng bộ hoặc chạy mã chặn trong ngữ cảnh asyncio.",
+        "Nên chọn threading cho nhiều kết nối I O theo mô hình luồng, chọn asyncio cho một tiến trình nhiều coroutine, và dùng executor như to_thread hoặc run_in_executor khi có mã chặn hay thư viện đồng bộ."
+      ],
+      "hypothesis": "1000/100 should outperform smaller chunks",
+      "rationale": "Cau hoi nay can ket hop phan so sanh threading voi asyncio o cuoi section va dong noi ve to_thread run_in_executor. Day la kieu tong hop vua phai, khop voi mot chunk 1000 hon la cac chunk 500 bi cat doi."
+    }
+  ]
+}
